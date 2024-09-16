@@ -6,6 +6,8 @@ import Student from '../models/Student.js';
 import { handleError } from '../utils/errorHandler.js';
 import Notification from '../models/Notification.js';
 import { handleQuery } from '../utils/queryHelper.js';
+import School from '../models/School.js';
+import { createOrUpdateGroupedNotification } from '../utils/notificationHelper.js';
 
 const router = express.Router();
 
@@ -16,6 +18,39 @@ const findUserById = async (decoded) => {
 
 // Middleware xác thực cho sinh viên
 const authenticateStudent = authenticate(Student, findUserById, ['student']);
+
+// Đăng ký tài khoản sinh viên
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password, studentId, schoolId } = req.body;
+    
+    const school = await School.findById(schoolId);
+    if (!school) {
+      return res.status(404).json({ message: 'Không tìm thấy trường học' });
+    }
+
+    const student = new Student({
+      name,
+      email,
+      password,
+      studentId,
+      school: schoolId
+    });
+
+    await student.save();
+
+    // Gửi thông báo cho admin của trường
+    await createOrUpdateGroupedNotification({
+      schoolId,
+      studentName: student.name,
+      studentId: student._id
+    });
+
+    res.status(201).json({ message: 'Đăng ký thành công. Vui lòng chờ nhà trường xác nhận tài khoản.' });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
 
 // Lấy danh sách dự án đang tuyển dụng
 router.get('/projects', authenticateStudent, async (req, res) => {

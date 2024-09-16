@@ -4,6 +4,9 @@ import jwt from 'jsonwebtoken';
 import LoginHistory from './LoginHistory.js';
 import validator from 'validator';
 import sanitizeHtml from 'sanitize-html';
+import crypto from 'crypto';
+import { sendEmail } from '../utils/emailService.js';
+import { accountActivationTemplate } from '../utils/emailTemplates.js';
 
 const { Schema } = mongoose;
 
@@ -30,10 +33,9 @@ const SchoolAccountSchema = new Schema({
         trim: true,
         match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Vui lòng nhập email hợp lệ']
     },
-    password: { 
-        type: String, 
-        required: [true, 'Mật khẩu không được bỏ trống'],
-        minlength: [6, 'Mật khẩu phải có ít nhất 6 ký tự']
+    passwordHash: {
+        type: String,
+        required: true
     },
     role: { 
         type: {
@@ -69,6 +71,15 @@ avatar: {
     }
 },
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
+
+SchoolAccountSchema.virtual('password')
+    .get(function() {
+        return this._password;
+    })
+    .set(function(value) {
+        this._password = value;
+        this.passwordHash = bcrypt.hashSync(value, 10);
+    });
 
 SchoolAccountSchema.pre('save', async function(next) {
     if (this.isModified('name')) {
@@ -117,20 +128,8 @@ const SchoolSchema = new Schema({
     }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
-SchoolAccountSchema.pre('save', async function(next) {
-    if (!this.isModified('password')) return next();
-    try {
-        const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
-        const salt = await bcrypt.genSalt(saltRounds);
-        this.password = await bcrypt.hash(this.password, salt);
-        next();
-    } catch (err) {
-        next(err);
-    }
-});
-
 SchoolAccountSchema.methods.comparePassword = function(candidatePassword) {
-    return bcrypt.compare(candidatePassword, this.password);
+    return bcrypt.compare(candidatePassword, this.passwordHash);
 };
 
 SchoolAccountSchema.methods.softDelete = function() {
@@ -142,6 +141,12 @@ SchoolAccountSchema.methods.restore = function() {
 };
 
 SchoolAccountSchema.pre('validate', function(next) {
+    if (this.isNew && !this._password) {
+        this.invalidate('password', 'Mật khẩu không được bỏ trống');
+    }
+    if (this._password && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{6,}$/.test(this._password)) {
+        this.invalidate('password', 'Mật khẩu phải chứa ít nhất một chữ hoa, một chữ thường và một số, và có ít nhất 6 ký tự.');
+    }
     if (this.name) {
         this.name = sanitizeHtml(this.name, sanitizeOptions);
     }
@@ -164,7 +169,7 @@ SchoolAccountSchema.statics.login = async function(schoolId, email, password, re
         school: schoolId, 
         email: email, 
         isDeleted: false 
-    }).exec();
+    }).select('+passwordHash').exec();
 
     if (!account) {
         throw new Error('Email hoặc mật khẩu không đúng.');
@@ -245,6 +250,56 @@ SchoolAccountSchema.path('avatar').get(function (value) {
 // Đảm bảo rằng các getter được bao gồm khi chuyển đổi sang JSON
 SchoolAccountSchema.set('toJSON', { getters: true });
 SchoolAccountSchema.set('toObject', { getters: true });
+
+SchoolSchema.statics.register = async function(schoolData, accountData) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { name, address, website, establishedDate } = schoolData;
+        const { accountName, email, password } = accountData;
+
+        const activationToken = crypto.randomBytes(32).toString('hex');
+        const tokenExpiration = Date.now() + 3600000; // 1 hour
+
+        const newSchool = new this({
+            name,
+            address,
+            website,
+            establishedDate,
+            accounts: [{
+                name: accountName,
+                email,
+                password, // Sử dụng trường ảo password
+                role: { name: 'admin' },
+                activationToken,
+                tokenExpiration
+            }]
+        });
+
+        await newSchool.save({ session });
+
+        const activationLink = `http://localhost:5000/api/school/activate/${activationToken}`;
+        await sendEmail(
+            email,
+            'Xác nhận tài khoản trường học của bạn',
+            accountActivationTemplate({
+                accountName,
+                companyName: name,
+                activationLink
+            })
+        );
+
+        await session.commitTransaction();
+        session.endSession();
+
+        return newSchool;
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        throw error;
+    }
+};
 
 const School = mongoose.model('School', SchoolSchema);
 export default School;

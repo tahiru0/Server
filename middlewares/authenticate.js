@@ -17,9 +17,14 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
       return res.status(401).json({ message: 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.' });
     }
 
-    // Thay đổi cách kiểm tra role
+    // Kiểm tra role nếu được yêu cầu
     if (requiredRole && user.role !== requiredRole) {
       return res.status(403).json({ message: 'Bạn không có quyền thực hiện hành động này.' });
+    }
+
+    // Kiểm tra trạng thái xác nhận chỉ cho model Student
+    if (Model.modelName === 'Student' && !user.isApproved) {
+      return res.status(403).json({ message: 'Tài khoản chưa được xác nhận. Vui lòng chờ nhà trường xác nhận.' });
     }
 
     req.token = token;
@@ -32,7 +37,6 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
 
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ message: 'Token đã hết hạn. Vui lòng đăng nhập lại.' });
     }

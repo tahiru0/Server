@@ -6,33 +6,33 @@ import validator from 'validator';
 import sanitizeHtml from 'sanitize-html';
 
 const sanitizeOptions = {
-  allowedTags: [],
-  allowedAttributes: {},
-  disallowedTagsMode: 'discard'
+    allowedTags: [],
+    allowedAttributes: {},
+    disallowedTagsMode: 'discard'
 };
 
 const StudentSchema = new Schema({
-    name: { 
-        type: String, 
+    name: {
+        type: String,
         required: [true, 'Tên sinh viên không được bỏ trống'],
         maxlength: [100, 'Tên sinh viên không được vượt quá 100 ký tự'],
         set: (value) => sanitizeHtml(value, sanitizeOptions),
         get: (value) => sanitizeHtml.defaults.decoder(value)
     },
-    email: { 
-        type: String, 
-        required: [true, 'Email không được bỏ trống'], 
+    email: {
+        type: String,
+        required: [true, 'Email không được bỏ trống'],
         unique: [true, 'Email đã tồn tại'],
         maxlength: [255, 'Email không được vượt quá 255 ký tự'],
         set: (value) => validator.normalizeEmail(value)
     },
-    password: { 
-        type: String, 
+    password: {
+        type: String,
         required: [true, 'Mật khẩu không được bỏ trống'],
         maxlength: [128, 'Mật khẩu không được vượt quá 128 ký tự']
     },
-    studentId: { 
-        type: String, 
+    studentId: {
+        type: String,
         required: [true, 'Mã số sinh viên không được bỏ trống'],
         maxlength: [20, 'Mã số sinh viên không được vượt quá 20 ký tự'],
         set: (value) => sanitizeHtml(value, sanitizeOptions),
@@ -42,15 +42,15 @@ const StudentSchema = new Schema({
     createdBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
     isApproved: { type: Boolean, default: false },
     isDeleted: { type: Boolean, default: false },
-    refreshToken: { 
-        type: String, 
+    refreshToken: {
+        type: String,
         default: null,
         maxlength: [1024, 'Refresh token không được vượt quá 1024 ký tự']
     },
     lastLogin: { type: Date },
     dateOfBirth: { type: Date },
-    gender: { 
-        type: String, 
+    gender: {
+        type: String,
         enum: ['Nam', 'Nữ', 'Khác'],
         maxlength: [10, 'Giới tính không được vượt quá 10 ký tự']
     },
@@ -58,7 +58,7 @@ const StudentSchema = new Schema({
         type: String,
         maxlength: [15, 'Số điện thoại không được vượt quá 15 ký tự'],
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 return /^[0-9]{10,11}$/.test(v);
             },
             message: props => `${props.value} không phải là số điện thoại hợp lệ!`
@@ -123,20 +123,23 @@ const StudentSchema = new Schema({
         endDate: Date
     }],
     projects: [{ type: Schema.Types.ObjectId, ref: 'Project' }],
-    cv: { 
+    cv: {
         type: String,
         maxlength: [1024, 'URL CV không được vượt quá 1024 ký tự']
     }, // URL đến file CV
     currentProject: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', default: null },
-avatar: {
-    type: String,
-    default: function() {
-        return `/default/${this.name.charAt(0).toUpperCase()}`;
-    }
-},
+    avatar: {
+        type: String,
+        default: function () {
+            return `/default/${this.name.charAt(0).toUpperCase()}`;
+        }
+    },
+    isApproved: { type: Boolean, default: false },
+    approvedBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
+    approvedAt: { type: Date },
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
-StudentSchema.pre('save', async function(next) {
+StudentSchema.pre('save', async function (next) {
     if (this.isModified('name')) {
         const { encodeUrl } = await import('../utils/urlEncoder.js');
         let initial = this.name.charAt(0);
@@ -158,25 +161,25 @@ StudentSchema.pre('save', async function(next) {
 });
 
 // Unique index để đảm bảo mã số sinh viên là duy nhất trong mỗi trường
-StudentSchema.index({ school: 1, studentId: 1 }, { 
-    unique: [true, 'Mã số sinh viên đã tồn tại trong trường này.'], 
-    partialFilterExpression: { isDeleted: { $ne: true } } 
+StudentSchema.index({ school: 1, studentId: 1 }, {
+    unique: [true, 'Mã số sinh viên đã tồn tại trong trường này.'],
+    partialFilterExpression: { isDeleted: { $ne: true } }
 });
 
 // Soft delete method
-StudentSchema.methods.softDelete = function() {
+StudentSchema.methods.softDelete = function () {
     this.isDeleted = true;
     return this.save();
 };
 
 // Restore method
-StudentSchema.methods.restore = function() {
+StudentSchema.methods.restore = function () {
     this.isDeleted = false;
     return this.save();
 };
 
 // Login method
-StudentSchema.statics.login = async function(schoolId, studentId, password, req) {
+StudentSchema.statics.login = async function (schoolId, studentId, password, req) {
     const school = await mongoose.model('School').findById(schoolId).exec();
     if (!school) {
         throw new Error('Không tìm thấy trường học này.');
@@ -204,7 +207,7 @@ StudentSchema.statics.login = async function(schoolId, studentId, password, req)
         userModel: 'Student',
         loginTime: new Date(),
         ipAddress: req.ip,
-        userAgent: req.headers['user-agent']      
+        userAgent: req.headers['user-agent']
     });
     await loginHistory.save();
 
@@ -213,26 +216,26 @@ StudentSchema.statics.login = async function(schoolId, studentId, password, req)
 
 // Thêm các ràng buộc và xác thực cho các trường
 
-StudentSchema.path('name').validate(function(value) {
+StudentSchema.path('name').validate(function (value) {
     return value.length >= 2 && value.length <= 100;
 }, 'Tên sinh viên phải có độ dài từ 2 đến 100 ký tự');
 
-StudentSchema.path('email').validate(function(value) {
+StudentSchema.path('email').validate(function (value) {
     const emailRegex = /^([\w-\.]+@([\w-]+\.)+[\w-]{2,4})?$/;
     return emailRegex.test(value);
 }, 'Email không hợp lệ');
 
-StudentSchema.path('password').validate(function(value) {
+StudentSchema.path('password').validate(function (value) {
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/;
     return passwordRegex.test(value);
 }, 'Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số');
 
-StudentSchema.path('studentId').validate(function(value) {
+StudentSchema.path('studentId').validate(function (value) {
     return value.length >= 5 && value.length <= 20;
 }, 'Mã số sinh viên phải có độ dài từ 5 đến 20 ký tự');
 
 // Thêm phương thức để mã hóa mật khẩu trước khi lưu
-StudentSchema.pre('save', async function(next) {
+StudentSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
     try {
         const salt = await bcrypt.genSalt(SALT_ROUNDS);
@@ -244,12 +247,12 @@ StudentSchema.pre('save', async function(next) {
 });
 
 // Thêm phương thức để so sánh mật khẩu
-StudentSchema.methods.comparePassword = async function(candidatePassword) {
+StudentSchema.methods.comparePassword = async function (candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);
 };
 
 // Thêm phương thức để tìm kiếm sinh viên sử dụng prepared statement
-StudentSchema.statics.findBySchoolAndStudentId = async function(schoolId, studentId) {
+StudentSchema.statics.findBySchoolAndStudentId = async function (schoolId, studentId) {
     return this.findOne({
         school: schoolId,
         studentId: studentId,
@@ -258,7 +261,7 @@ StudentSchema.statics.findBySchoolAndStudentId = async function(schoolId, studen
 };
 
 // Thêm middleware để sanitize dữ liệu
-StudentSchema.pre('validate', function(next) {
+StudentSchema.pre('validate', function (next) {
     if (this.name) {
         this.name = sanitizeString(this.name);
     }
@@ -276,51 +279,51 @@ StudentSchema.pre('validate', function(next) {
 });
 
 // Thêm hàm để lấy danh sách dự án phù hợp
-StudentSchema.methods.getMatchingProjects = async function() {
-  const projects = await mongoose.model('Project').find({
-    $or: [
-      { requiredSkills: { $in: this.skills } },
-      { relatedMajors: this.major }
-    ],
-    isRecruiting: true,
-    status: 'Open'
-  }).populate('requiredSkills relatedMajors');
+StudentSchema.methods.getMatchingProjects = async function () {
+    const projects = await mongoose.model('Project').find({
+        $or: [
+            { requiredSkills: { $in: this.skills } },
+            { relatedMajors: this.major }
+        ],
+        isRecruiting: true,
+        status: 'Open'
+    }).populate('requiredSkills relatedMajors');
 
-  return projects.filter(project => {
-    const skillMatch = project.requiredSkills.some(skill => 
-      this.skills.includes(skill._id.toString())
-    );
-    const majorMatch = project.relatedMajors.some(major => 
-      major._id.toString() === this.major.toString()
-    );
-    return skillMatch || majorMatch;
-  });
+    return projects.filter(project => {
+        const skillMatch = project.requiredSkills.some(skill =>
+            this.skills.includes(skill._id.toString())
+        );
+        const majorMatch = project.relatedMajors.some(major =>
+            major._id.toString() === this.major.toString()
+        );
+        return skillMatch || majorMatch;
+    });
 };
 
-StudentSchema.statics.searchStudents = async function(query, filters) {
-  let searchCriteria = {};
-  
-  if (query) {
-    searchCriteria.$or = [
-      { name: { $regex: query, $options: 'i' } },
-      { email: { $regex: query, $options: 'i' } },
-      { studentId: { $regex: query, $options: 'i' } }
-    ];
-  }
-  
-  if (filters.skills) {
-    searchCriteria.skills = { $in: filters.skills };
-  }
-  
-  if (filters.major) {
-    searchCriteria.major = filters.major;
-  }
-  
-  return this.find(searchCriteria).populate('skills major');
+StudentSchema.statics.searchStudents = async function (query, filters) {
+    let searchCriteria = {};
+
+    if (query) {
+        searchCriteria.$or = [
+            { name: { $regex: query, $options: 'i' } },
+            { email: { $regex: query, $options: 'i' } },
+            { studentId: { $regex: query, $options: 'i' } }
+        ];
+    }
+
+    if (filters.skills) {
+        searchCriteria.skills = { $in: filters.skills };
+    }
+
+    if (filters.major) {
+        searchCriteria.major = filters.major;
+    }
+
+    return this.find(searchCriteria).populate('skills major');
 };
 
 // Thêm middleware để xử lý cập nhật
-StudentSchema.pre('findOneAndUpdate', function(next) {
+StudentSchema.pre('findOneAndUpdate', function (next) {
     const update = this.getUpdate();
     if (update.$set) {
         Object.keys(update.$set).forEach(key => {

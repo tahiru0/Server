@@ -54,6 +54,10 @@ const notificationSchema = new mongoose.Schema({
     type: String,
     enum: ['admin', 'mentor', 'staff', null],
     default: null
+  },
+  relatedData: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   }
 }, { 
   timestamps: true, 
