@@ -1,10 +1,10 @@
-# 🚀 Thực Tập Doanh Nghiệp Số TechOne
+# 🚀 Thực Tập Doanh Nghiệp Số Tech One
 
-<img src="assets/icons/logo.png" alt="TechOne Logo" width="100"/>
+<img src="assets/icons/logo.png" alt="Tech One Logo" width="100"/>
 
 ## 📖 Giới thiệu
 
-Dự án Thực Tập Doanh Nghiệp Số TechOne là một nền tảng quản lý thực tập sinh và dự án thực tập. Hệ thống này giúp kết nối sinh viên với các doanh nghiệp, tạo điều kiện cho việc quản lý và theo dõi quá trình thực tập một cách hiệu quả.
+Dự án Thực Tập Doanh Nghiệp Số Tech One là một nền tảng quản lý thực tập sinh và dự án thực tập. Hệ thống này giúp kết nối sinh viên với các doanh nghiệp, tạo điều kiện cho việc quản lý và theo dõi quá trình thực tập một cách hiệu quả.
 
 ### 🌟 Tính năng chính
 
@@ -42,12 +42,12 @@ Dự án Thực Tập Doanh Nghiệp Số TechOne là một nền tảng quản 
 
    ```
    PORT=5000
-   MONGODB_URI=mongodb://localhost:27017/techone_internship
+   MONGODB_URI=mongodb://localhost:27017/Tech One_internship
    JWT_SECRET=your_jwt_secret_key
    SESSION_SECRET=your_session_secret_key
    EMAIL_USER=your_email@example.com
    EMAIL_PASS=your_email_password
-   SENDER_NAME=TechOne Internship
+   SENDER_NAME=Tech One Internship
    SALT_ROUNDS=10
    ```
 
@@ -68,11 +68,11 @@ http://localhost:5000/api-docs
 
 ## 📄 Bản quyền và Giấy phép
 
-© 2024 TechOne. Bảo lưu mọi quyền.
+© 2024 Tech One. Bảo lưu mọi quyền.
 
 Dự án này được bảo vệ bởi luật bản quyền. Nghiêm cấm sao chép, phân phối hoặc sử dụng cho mục đích thương mại mà không có sự cho phép rõ ràng bằng văn bản từ chủ sở hữu.
 
-Logo và các tài sản hình ảnh khác là tài sản độc quyền của TechOne và không được sử dụng mà không có sự cho phép.
+Logo và các tài sản hình ảnh khác là tài sản độc quyền của Tech One và không được sử dụng mà không có sự cho phép.
 
 ## 📞 Liên hệ
 
@@ -80,4 +80,4 @@ Nếu bạn có bất kỳ câu hỏi nào, vui lòng tạo issue trong reposito
 
 ---
 
-⭐️ Phát triển bởi TechOne Team với ❤️
+⭐️ Phát triển bởi Tech One Team với ❤️
