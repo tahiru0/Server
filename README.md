@@ -1,6 +1,6 @@
 # 🚀 Thực Tập Doanh Nghiệp Số TechOne
 
-<img src="/assets/icons/logo.png" alt="TechOne Logo" width="100"/>
+<img src="assets/icons/logo.png" alt="TechOne Logo" width="100"/>
 
 ## 📖 Giới thiệu
 
@@ -26,8 +26,8 @@ Dự án Thực Tập Doanh Nghiệp Số TechOne là một nền tảng quản 
 1. **Clone repository**
 
    ```bash
-   git clone https://github.com/your-username/techone-internship.git
-   cd techone-internship
+   git clone https://github.com/tahiru0/Server.git
+   cd Server
    ```
 
 2. **Cài đặt dependencies**
@@ -44,12 +44,14 @@ Dự án Thực Tập Doanh Nghiệp Số TechOne là một nền tảng quản 
    PORT=5000
    MONGODB_URI=mongodb://localhost:27017/techone_internship
    JWT_SECRET=your_jwt_secret_key
+   SESSION_SECRET=your_session_secret_key
    EMAIL_USER=your_email@example.com
    EMAIL_PASS=your_email_password
    SENDER_NAME=TechOne Internship
+   SALT_ROUNDS=10
    ```
 
-   Thay thế các giá trị với thông tin cụ thể của bạn.
+   Thay thế các giá trị với thông tin cụ thể của bạn. Đảm bảo giữ bí mật các thông tin nhạy cảm và không chia sẻ file `.env` công khai.
 
 4. **Khởi động server**
 
@@ -62,4 +64,20 @@ Dự án Thực Tập Doanh Nghiệp Số TechOne là một nền tảng quản 
 ## 📚 Tài liệu API
 
 Tài liệu API có sẵn thông qua Swagger UI. Sau khi khởi động server, truy cập:
- http://localhost:5000/api-docs
+http://localhost:5000/api-docs
+
+## 📄 Bản quyền và Giấy phép
+
+© 2024 TechOne. Bảo lưu mọi quyền.
+
+Dự án này được bảo vệ bởi luật bản quyền. Nghiêm cấm sao chép, phân phối hoặc sử dụng cho mục đích thương mại mà không có sự cho phép rõ ràng bằng văn bản từ chủ sở hữu.
+
+Logo và các tài sản hình ảnh khác là tài sản độc quyền của TechOne và không được sử dụng mà không có sự cho phép.
+
+## 📞 Liên hệ
+
+Nếu bạn có bất kỳ câu hỏi nào, vui lòng tạo issue trong repository này.
+
+---
+
+⭐️ Phát triển bởi TechOne Team với ❤️
