@@ -94,54 +94,6 @@ router.get('/applied-projects', authenticateStudent, async (req, res) => {
   }
 });
 
-// Lấy danh sách thông báo của sinh viên
-router.get('/notifications', authenticateStudent, async (req, res) => {
-  try {
-    const notifications = await Notification.find({ recipient: req.user._id, recipientModel: 'Student' })
-      .sort({ createdAt: -1 })
-      .limit(20);
-    res.json(notifications);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Đánh dấu thông báo đã đọc
-router.put('/notifications/:id/read', authenticateStudent, async (req, res) => {
-  try {
-    const notification = await Notification.findOneAndUpdate(
-      { _id: req.params.id, recipient: req.user._id },
-      { isRead: true },
-      { new: true }
-    );
-    if (!notification) {
-      return res.status(404).json({ message: 'Không tìm thấy thông báo' });
-    }
-    res.json(notification);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Cập nhật cài đặt thông báo
-router.put('/notification-settings', authenticateStudent, async (req, res) => {
-  try {
-    const { taskNotifications, projectNotifications, emailNotifications } = req.body;
-    const student = await Student.findByIdAndUpdate(
-      req.user._id,
-      { 
-        'notificationSettings.taskNotifications': taskNotifications,
-        'notificationSettings.projectNotifications': projectNotifications,
-        'notificationSettings.emailNotifications': emailNotifications
-      },
-      { new: true }
-    );
-    res.json(student.notificationSettings);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
 // Lấy thông tin hồ sơ sinh viên
 router.get('/profile', authenticateStudent, async (req, res) => {
   try {
