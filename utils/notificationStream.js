@@ -6,6 +6,7 @@ class NotificationStream {
   }
 
   sendNotification(notification) {
+    console.log('Sending notification:', notification);
     this.emitter.emit('notification', notification);
   }
 
@@ -17,7 +18,14 @@ class NotificationStream {
     });
 
     const sendNotification = (notification) => {
-      if (notification.recipient.toString() === req.user._id.toString()) {
+      console.log('Notification received in stream:', notification);
+      console.log('User info:', req.user);
+      if (notification.recipient.toString() === req.user._id.toString() &&
+          notification.recipientModel === req.userModel &&
+          (req.userModel === 'Student' ||
+           req.userModel === 'Admin' ||
+           (req.userModel === 'CompanyAccount' && notification.recipientRole === req.user.role) ||
+           (req.userModel === 'SchoolAccount' && notification.recipientRole === req.user.role))) {
         res.write(`data: ${JSON.stringify({ notification })}\n\n`);
       }
     };

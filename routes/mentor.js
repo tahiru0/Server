@@ -27,7 +27,6 @@ router.get('/projects', authenticateMentor, async (req, res, next) => {
       mentor: mentorId,
       company: companyId
     };
-    console.log('Additional Filters:', additionalFilters);
 
     const query = handleQuery(Project, req, additionalFilters);
     console.log('Query:', query.getFilter());
@@ -225,6 +224,7 @@ router.get('/projects/:projectId', authenticateMentor, async (req, res, next) =>
       isRecruiting: project.isRecruiting,
       startDate: project.startDate,
       endDate: project.endDate,
+      maxApplicants: project.maxApplicants,
       relatedMajors: project.relatedMajors.map(major => ({
         id: major._id,
         name: major.name

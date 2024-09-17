@@ -513,6 +513,48 @@ projectSchema.pre('findOneAndUpdate', function(next) {
     }
     next();
 });
+projectSchema.methods.changeMentor = async function(newMentorId, oldMentorId, companyId) {
+  const Company = mongoose.model('Company');
+  const company = await Company.findById(companyId);
+
+  if (!company) {
+    throw new Error('Không tìm thấy công ty.');
+  }
+
+  const newMentor = company.accounts.id(newMentorId);
+  const oldMentor = company.accounts.id(oldMentorId);
+
+  if (!newMentor || newMentor.role !== 'mentor') {
+    throw new Error('Mentor mới không hợp lệ.');
+  }
+
+  if (!oldMentor || oldMentor.role !== 'mentor') {
+    throw new Error('Mentor cũ không hợp lệ.');
+  }
+
+  this.mentor = newMentorId;
+  await this.save();
+
+  // Tạo thông báo cho mentor mới
+await Notification.insert({
+  recipient: newMentorId,
+  recipientModel: 'CompanyAccount',
+  recipientRole: 'mentor',
+  type: 'project',
+  content: `Bạn đã được chỉ định làm mentor cho dự án "${this.title}"`,
+  relatedId: this._id
+});
+
+// Tạo thông báo cho mentor cũ
+await Notification.insert({
+  recipient: oldMentorId,
+  recipientModel: 'CompanyAccount',
+  recipientRole: 'mentor',
+  type: 'project',
+  content: `Bạn đã được thay thế bởi mentor khác trong dự án "${this.title}"`,
+  relatedId: this._id
+});
+};
 
 const Project = mongoose.model('Project', projectSchema);
 

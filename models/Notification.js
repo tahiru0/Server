@@ -9,6 +9,15 @@ const sanitizeOptions = {
 };
 
 const notificationSchema = new mongoose.Schema({
+  parentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: function() {
+      return this.recipientModel === 'CompanyAccount' || this.recipientModel === 'SchoolAccount';
+    },
+    refPath: function() {
+      return this.recipientModel === 'CompanyAccount' ? 'Company' : 'School';
+    }
+  },
   recipient: {
     type: mongoose.Schema.Types.ObjectId,
     required: [true, 'Người nhận thông báo không được để trống'],
@@ -17,7 +26,7 @@ const notificationSchema = new mongoose.Schema({
   recipientModel: {
     type: String,
     required: [true, 'Loại người nhận không được để trống'],
-    enum: ['Student', 'CompanyAccount', 'Admin']
+    enum: ['Admin', 'CompanyAccount', 'Student', 'SchoolAccount']
   },
   type: {
     type: String,
@@ -52,7 +61,7 @@ const notificationSchema = new mongoose.Schema({
   },
   recipientRole: {
     type: String,
-    enum: ['admin', 'mentor', 'staff', null],
+    enum: ['admin', 'mentor', 'staff', 'schoolAdmin', 'schoolStaff', null],
     default: null
   },
   relatedData: {
@@ -97,11 +106,17 @@ notificationSchema.methods.restore = function() {
 
 // Sửa đổi các truy vấn để chỉ lấy các thông báo chưa bị xóa mềm
 notificationSchema.pre('find', function() {
-  this.where({ isDeleted: false });
+  if (!this.getQuery().hasOwnProperty('isDeleted')) {
+    this.where({ isDeleted: false });
+  }
+  console.log('Pre find hook:', this.getQuery());
 });
 
 notificationSchema.pre('findOne', function() {
-  this.where({ isDeleted: false });
+  if (!this.getQuery().hasOwnProperty('isDeleted')) {
+    this.where({ isDeleted: false });
+  }
+  console.log('Pre findOne hook:', this.getQuery());
 });
 
 // Thêm middleware để xử lý cập nhật
@@ -114,22 +129,27 @@ notificationSchema.pre('findOneAndUpdate', function(next) {
             }
         });
     }
+    console.log('Pre findOneAndUpdate hook:', update);
     next();
 });
 
 // Thay đổi hook post save
 notificationSchema.pre('save', function(next) {
-  console.log('Pre-save hook triggered. isNew:', this.isNew);
   next();
 });
 
-notificationSchema.post('save', async function(doc, next) {
-  console.log('Post-save hook triggered. isNew:', doc.isNew);
+notificationSchema.post('save', function(doc, next) {
   if (doc.isNew) {
     console.log('Sending notification to stream:', doc);
-    notificationStream.sendNotification(doc); // Sửa lại để không dùng await
+    notificationStream.sendNotification(doc)
+      .then(() => next())
+      .catch(error => {
+        console.error('Error sending notification to stream:', error);
+        next(error);
+      });
+  } else {
+    next();
   }
-  next();
 });
 
 // Thêm validation cho recipientRole
@@ -137,7 +157,10 @@ notificationSchema.pre('validate', function(next) {
   if (this.recipientModel === 'CompanyAccount' && !this.recipientRole) {
     this.invalidate('recipientRole', 'recipientRole là bắt buộc cho CompanyAccount');
   }
-  if (this.recipientModel !== 'CompanyAccount' && this.recipientRole) {
+  if (this.recipientModel === 'SchoolAccount' && !this.recipientRole) {
+    this.invalidate('recipientRole', 'recipientRole là bắt buộc cho SchoolAccount');
+  }
+  if (this.recipientModel !== 'CompanyAccount' && this.recipientModel !== 'SchoolAccount' && this.recipientRole) {
     this.recipientRole = null;
   }
   next();
@@ -145,8 +168,33 @@ notificationSchema.pre('validate', function(next) {
 
 // Thêm hàm insert
 notificationSchema.statics.insert = async function(notificationData) {
-  const notification = new this(notificationData);
+  let recipient;
+  let parentId;
+  if (notificationData.recipientModel === 'CompanyAccount' || notificationData.recipientModel === 'SchoolAccount') {
+    const ParentModel = mongoose.model(notificationData.recipientModel === 'CompanyAccount' ? 'Company' : 'School');
+    const parent = await ParentModel.findOne({ 'accounts._id': notificationData.recipient });
+    if (!parent) {
+      console.error(`Không tìm thấy ${notificationData.recipientModel} với tài khoản ID ${notificationData.recipient}`);
+      throw new Error(`Không tìm thấy ${notificationData.recipientModel} với tài khoản ID ${notificationData.recipient}`);
+    }
+    recipient = parent.accounts.id(notificationData.recipient);
+    parentId = parent._id;
+  } else {
+    recipient = await mongoose.model(notificationData.recipientModel).findById(notificationData.recipient);
+  }
+
+  if (!recipient) {
+    console.error(`Không tìm thấy người nhận với ID ${notificationData.recipient}`);
+    throw new Error(`Không tìm thấy người nhận với ID ${notificationData.recipient}`);
+  }
+
+  const notification = new this({
+    ...notificationData,
+    recipient: notificationData.recipient,
+    parentId: parentId
+  });
   await notification.save();
+  console.log('Notification saved:', notification);
   notificationStream.sendNotification(notification);
   return notification;
 };

@@ -3,6 +3,7 @@ import authenticate from '../middlewares/authenticate.js';
 import Notification from '../models/Notification.js';
 import Company from '../models/Company.js';
 import Student from '../models/Student.js';
+import School from '../models/School.js';
 import notificationStream from '../utils/notificationStream.js';
 
 const router = express.Router();
@@ -10,7 +11,9 @@ const router = express.Router();
 const findUserById = async (decoded) => {
   if (decoded.role === 'student') {
     return await Student.findById(decoded._id);
-  } else {
+  } else if (decoded.model === 'SchoolAccount') {
+    return await School.findSchoolAccountById(decoded);
+  } else if (decoded.model === 'CompanyAccount') {
     return await Company.findCompanyAccountById(decoded);
   }
 };
@@ -23,18 +26,38 @@ router.get('/', authenticateUser, async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const notifications = await Notification.find({
+    const recipientModel = req.userModel;
+    const parentId = req.user.companyId || req.user.schoolId;
+
+    const query = {
       recipient: req.user._id,
-      recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount'
-    })
+      recipientModel: recipientModel,
+      isDeleted: false
+    };
+    
+    if (parentId) {
+      query.parentId = parentId;
+    }
+    
+    if (recipientModel === 'CompanyAccount' && req.user.role) {
+      query.recipientRole = req.user.role;
+    } else if (recipientModel === 'SchoolAccount' && req.user.role) {
+      query.recipientRole = req.user.role.name;
+    }
+
+    console.log('Query:', query);
+    console.log('User:', req.user);
+    console.log('UserModel:', req.userModel);
+
+    const notifications = await Notification.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
-    const total = await Notification.countDocuments({
-      recipient: req.user._id,
-      recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount'
-    });
+    console.log('Notifications:', notifications);
+
+    const total = await Notification.countDocuments(query);
 
     res.json({
       notifications,
@@ -43,39 +66,49 @@ router.get('/', authenticateUser, async (req, res) => {
       total
     });
   } catch (error) {
+    console.error('Error in GET /notifications:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
 router.patch('/:id/read', authenticateUser, async (req, res) => {
   try {
-    const notification = await Notification.findOne({
+    const query = {
       _id: req.params.id,
       recipient: req.user._id,
-      recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount'
-    });
+      recipientModel: req.userModel
+    };
 
+    console.log('Patch query:', query);
+
+    const notification = await Notification.findOne(query);
     if (!notification) {
-      return res.status(404).json({ message: 'Không tìm thấy thông báo' });
+      return res.status(404).json({ message: 'Thông báo không tồn tại' });
     }
 
-    notification.isRead = true;
-    await notification.save();
+    await notification.markAsRead();
 
-    res.json({ message: 'Đã đánh dấu thông báo là đã đọc' });
+    res.json({ message: 'Thông báo đã được đánh dấu là đã đọc' });
   } catch (error) {
+    console.error('Error in PATCH /notifications/:id/read:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
 router.patch('/read-all', authenticateUser, async (req, res) => {
   try {
+    const query = {
+      recipient: req.user._id,
+      recipientModel: req.userModel,
+      isRead: false
+    };
+
+    if (req.user.companyId || req.user.schoolId) {
+      query.parentId = req.user.companyId || req.user.schoolId;
+    }
+
     await Notification.updateMany(
-      {
-        recipient: req.user._id,
-        recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount',
-        isRead: false
-      },
+      query,
       { $set: { isRead: true, readAt: new Date() } }
     );
 
@@ -87,11 +120,17 @@ router.patch('/read-all', authenticateUser, async (req, res) => {
 
 router.delete('/:id', authenticateUser, async (req, res) => {
   try {
-    const notification = await Notification.findOne({
+    const query = {
       _id: req.params.id,
       recipient: req.user._id,
-      recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount'
-    });
+      recipientModel: req.userModel
+    };
+
+    if (req.user.companyId || req.user.schoolId) {
+      query.parentId = req.user.companyId || req.user.schoolId;
+    }
+
+    const notification = await Notification.findOne(query);
 
     if (!notification) {
       return res.status(404).json({ message: 'Không tìm thấy thông báo' });
@@ -107,38 +146,57 @@ router.delete('/:id', authenticateUser, async (req, res) => {
 
 router.get('/unread-count', authenticateUser, async (req, res) => {
   try {
-    const count = await Notification.countDocuments({
+    const recipientModel = req.userModel;
+    const query = {
       recipient: req.user._id,
-      recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount',
-      isRead: false
-    });
+      recipientModel: recipientModel,
+      isRead: false,
+      isDeleted: false
+    };
+
+    if (req.user.companyId || req.user.schoolId) {
+      query.parentId = req.user.companyId || req.user.schoolId;
+    }
+
+    if (recipientModel === 'CompanyAccount' && req.user.role) {
+      query.recipientRole = req.user.role;
+    } else if (recipientModel === 'SchoolAccount' && req.user.role) {
+      query.recipientRole = req.user.role.name;
+    }
+
+    console.log('Unread count query:', query);
+
+    const count = await Notification.countDocuments(query);
+
+    console.log('Unread count result:', count);
 
     res.json({ unreadCount: count });
   } catch (error) {
+    console.error('Error in GET /notifications/unread-count:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
 router.patch('/:id/restore', authenticateUser, async (req, res) => {
-    try {
-      const notification = await Notification.findOne({
-        _id: req.params.id,
-        recipient: req.user._id,
-        recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount',
-        isDeleted: true
-      });
-  
-      if (!notification) {
-        return res.status(404).json({ message: 'Không tìm thấy thông báo đã xóa' });
-      }
-  
-      await notification.restore();
+  try {
+    const notification = await Notification.findOne({
+      _id: req.params.id,
+      recipient: req.user._id,
+      recipientModel: req.userModel,
+      isDeleted: true
+    });
 
-      res.json({ message: 'Đã khôi phục thông báo' });
-    } catch (error) {
-      res.status(500).json({ message: error.message });
+    if (!notification) {
+      return res.status(404).json({ message: 'Không tìm thấy thông báo đã xóa' });
     }
-  });
+
+    await notification.restore();
+
+    res.json({ message: 'Đã khôi phục thông báo' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
 router.get('/stream', authenticateUser, async (req, res) => {
   notificationStream.subscribe(req, res);
@@ -226,20 +284,27 @@ router.get('/unread', authenticateUser, async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const notifications = await Notification.find({
+    const recipientModel = req.userModel;
+    const query = {
       recipient: req.user._id,
-      recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount',
+      recipientModel: recipientModel,
       isRead: false
-    })
+    };
+
+    if (req.user.companyId || req.user.schoolId) {
+      query.parentId = req.user.companyId || req.user.schoolId;
+    }
+
+    console.log('Query:', query);
+
+    const notifications = await Notification.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    const total = await Notification.countDocuments({
-      recipient: req.user._id,
-      recipientModel: req.user.role === 'student' ? 'Student' : 'CompanyAccount',
-      isRead: false
-    });
+    console.log('Notifications:', notifications);
+
+    const total = await Notification.countDocuments(query);
 
     res.json({
       notifications,
@@ -248,6 +313,7 @@ router.get('/unread', authenticateUser, async (req, res) => {
       total
     });
   } catch (error) {
+    console.error('Error in GET /notifications/unread:', error);
     res.status(500).json({ message: error.message });
   }
 });

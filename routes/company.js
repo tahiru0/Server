@@ -439,7 +439,7 @@ router.get('/accounts', authenticateCompanyAccount, async (req, res) => {
  */
 router.post('/accounts', authenticateCompanyAdmin, async (req, res) => {
     try {
-        const companyId = req.companyId; // Thông tin công ty từ middleware
+        const companyId = req.user.companyId; // Thông tin công ty từ middleware
         const { name, email, password, role } = req.body;
 
         // Kiểm tra vai trò hợp lệ
@@ -532,7 +532,7 @@ router.post('/accounts', authenticateCompanyAdmin, async (req, res) => {
  */
 router.put('/accounts/:id', authenticateCompanyAdmin, async (req, res) => {
   try {
-      const companyId = req.companyId; // Lấy companyId từ request
+      const companyId = req.user.companyId; // Lấy companyId từ request
       if (!companyId) {
           return res.status(400).json({ message: 'Không tìm thấy thông tin công ty.' });
       }
@@ -612,7 +612,7 @@ router.put('/accounts/:id', authenticateCompanyAdmin, async (req, res) => {
  */
 router.patch('/accounts/:id/toggle-active', authenticateCompanyAdmin, async (req, res) => {
     try {
-      const companyId = req.companyId;
+      const companyId = req.user.companyId;
       const { id } = req.params;
   
       const company = await Company.findById(companyId);
@@ -1066,67 +1066,29 @@ const errorHandler = (err, req, res, next) => {
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Company"
  */
-router.get('/projects', authenticateCompanyAdmin, async (req, res) => {
+router.get('/projects', authenticateCompanyAccount, async (req, res) => {
   try {
-    const { 
-      search, 
-      page = 1, 
-      limit = 10, 
-      skills, 
-      status, 
-      isRecruiting, 
-      startDate, 
-      endDate, 
-      sortBy, 
-      sortOrder 
-    } = req.query;
+    const { page = 1, limit = 10, search = '', status, isRecruiting } = req.query;
+    const companyId = req.user.companyId;
 
-    // Kiểm tra xem req.companyId có tồn tại không
-    if (!req.companyId) {
-      return res.status(401).json({ message: 'Không tìm thấy thông tin công ty.' });
+    if (!companyId) {
+      return res.status(400).json({ message: "Không tìm thấy thông tin công ty." });
     }
 
-    let filters = { 
-      company: req.companyId,
-      skills,
-      status,
-      isRecruiting,
-      startDate,
-      endDate,
-      sortBy,
-      sortOrder
+    const filters = {
+      company: companyId,
+      status: status,
+      isRecruiting: isRecruiting === 'true'
     };
 
-    const projects = await Project.searchProjects(search, filters);
+    // Loại bỏ các trường không được định nghĩa
+    Object.keys(filters).forEach(key => filters[key] === undefined && delete filters[key]);
 
-    // Xử lý trường hợp không có dự án
-    if (!projects || projects.length === 0) {
-      return res.json({
-        projects: [],
-        total: 0,
-        page: Number(page),
-        limit: Number(limit),
-        message: 'Không có dự án nào được tìm thấy.'
-      });
-    }
+    const projects = await Project.searchProjects(search, filters, page, limit);
 
-    const total = projects.length;
-    const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
-    const paginatedProjects = projects.slice(startIndex, endIndex);
-
-    res.json({
-      projects: paginatedProjects,
-      total,
-      page: Number(page),
-      limit: Number(limit)
-    });
+    res.json(projects);
   } catch (error) {
-    console.error('Error in /projects route:', error);
-    if (error.message.includes("Cannot read properties of null")) {
-      return res.status(500).json({ message: 'Lỗi khi truy cập thông tin công ty hoặc tài khoản. Vui lòng kiểm tra lại dữ liệu.' });
-    }
-    res.status(500).json({ message: 'Lỗi server khi lấy danh sách dự án.', error: error.message });
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -1215,7 +1177,7 @@ router.put('/account', authenticateCompanyAccount,
       try {
           const { name, email, address } = req.body;
           const user = req.user;
-          const companyId = req.companyId;
+          const companyId = req.user.companyId;
 
           if (!companyId) {
               return res.status(400).json({ message: 'Không tìm thấy thông tin công ty.' });
@@ -1505,27 +1467,31 @@ router.post('/reset-password/:token', async (req, res) => {
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.get('/mentors', authenticateCompanyAdmin, async (req, res) => {
-    try {
-      const company = await Company.findById(req.user.company);
-      if (!company) {
-        return res.status(404).json({ message: 'Không tìm thấy công ty.' });
-      }
-  
-      const mentors = company.accounts
-        .filter(account => account.role === 'mentor' && !account.isDeleted && account.isActive !== false)
-        .map(mentor => ({
-          _id: mentor._id,
-          name: mentor.name,
-          avatar: mentor.avatar
-        }));
-  
-      res.json(mentors);
-    } catch (error) {
-      console.error('Lỗi khi lấy danh sách mentor:', error);
-      res.status(500).json({ message: 'Đã xảy ra lỗi khi lấy danh sách mentor.' });
+router.get('/mentors', authenticateCompanyAccount, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ message: "Không tìm thấy thông tin công ty." });
     }
-  });
+
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return res.status(404).json({ message: "Không tìm thấy công ty." });
+    }
+
+    const mentors = company.accounts
+      .filter(account => account.role === 'mentor')
+      .map(mentor => ({
+        _id: mentor._id,
+        name: mentor.name,
+        email: mentor.email
+      }));
+
+    res.json(mentors);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
   /**
  * @swagger
  * /api/company/projects/{id}/change-mentor:
@@ -1568,13 +1534,13 @@ router.patch('/projects/:id/change-mentor', authenticateCompanyAdmin, async (req
   const { newMentorId, oldMentorId } = req.body;
 
   try {
-    const project = await Project.findOne({ _id: req.params.id, company: req.companyId });
+    const project = await Project.findOne({ _id: req.params.id, company: req.user.companyId });
 
     if (!project) {
       return res.status(404).json({ message: 'Không tìm thấy dự án' });
     }
 
-    await project.changeMentor(newMentorId, oldMentorId, req.companyId);
+    await project.changeMentor(newMentorId, oldMentorId, req.user.companyId);
 
     res.status(200).json({ message: 'Mentor đã được thay đổi thành công' });
   } catch (error) {
@@ -1627,16 +1593,36 @@ router.patch('/projects/:id/change-mentor', authenticateCompanyAdmin, async (req
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.get('/mentors/:mentorId', authenticateCompanyAdmin, async (req, res) => {
+router.get('/mentors/:id', authenticateCompanyAccount, async (req, res) => {
   try {
-    const mentorDetails = await Company.getMentorDetails(req.companyId, req.params.mentorId);
-    res.json(mentorDetails);
-  } catch (error) {
-    if (error.message === 'Không tìm thấy công ty.' || error.message === 'Không tìm thấy mentor.') {
-      return res.status(404).json({ message: error.message });
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ message: "Không tìm thấy thông tin công ty." });
     }
-    console.error('Lỗi khi lấy chi tiết mentor:', error);
-    res.status(500).json({ message: 'Đã xảy ra lỗi khi lấy thông tin chi tiết mentor.' });
+
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return res.status(404).json({ message: "Không tìm thấy công ty." });
+    }
+
+    const mentor = company.accounts.id(req.params.id);
+    if (!mentor || mentor.role !== 'mentor') {
+      return res.status(404).json({ message: "Không tìm thấy mentor." });
+    }
+
+    // Lấy danh sách dự án của mentor
+    const projects = await Project.find({ mentor: mentor._id, company: companyId })
+      .select('_id title status');
+
+    res.json({
+      _id: mentor._id,
+      name: mentor.name,
+      email: mentor.email,
+      role: mentor.role,
+      projects: projects
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 

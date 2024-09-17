@@ -12,6 +12,7 @@ import bcrypt from 'bcryptjs';
 import LoginHistory from '../models/LoginHistory.js';
 import Notification from '../models/Notification.js';
 import authenticate from '../middlewares/authenticate.js';
+import School from '../models/School.js';
 
 const router = express.Router();
 
@@ -267,66 +268,76 @@ const loginCompany = async (req, res) => {
  *         description: Lỗi dữ liệu đầu vào
  */
 const loginSchool = async (req, res) => {
-    const { schoolId, email, password } = req.body;
-    let loginSuccess = false;
-    try {
-        if (!schoolId || schoolId.trim() === '') {
-            throw new Error('ID trường không hợp lệ.');
-        }
-
-        if (!email || email.trim() === '') {
-            throw new Error('Email không được để trống.');
-        }
-
-        if (!password || password.trim() === '') {
-            throw new Error('Mật khẩu không được để trống.');
-        }
-
-        const school = await School.findById(schoolId);
-        if (!school) {
-            throw new Error('Thông tin đăng nhập không chính xác.');
-        }
-
-        if (school.isDeleted || !school.isActive) {
-            throw new Error('Tài khoản trường học đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.');
-        }
-
-        const account = school.accounts.find(acc => acc.email === email && !acc.isDeleted);
-        if (!account) {
-            throw new Error('Thông tin đăng nhập không chính xác.');
-        }
-
-        if (!account.isActive) {
-            throw new Error('Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.');
-        }
-
-        const isPasswordValid = await bcrypt.compare(password, account.passwordHash);
-        if (!isPasswordValid) {
-            throw new Error('Thông tin đăng nhập không chính xác.');
-        }
-
-        const ipAddress = req.ip;
-        const { accessToken, refreshToken } = generateTokens(account, 'SchoolAccount', ipAddress);
-
-        account.refreshToken = refreshToken;
-        await school.save();
-
-        await saveLoginHistory(req, account, 'SchoolAccount', true);
-
-        loginSuccess = true;
-        return res.status(200).json(prepareLoginResponse(account, accessToken, refreshToken));
-    } catch (error) {
-        if (!res.headersSent) {
-            await saveLoginHistory(req, null, 'SchoolAccount', false, error.message);
-            const { status, message } = handleError(error);
-            return res.status(status).json({ message });
-        }
-    } finally {
-        if (!loginSuccess && !res.headersSent) {
-            await saveLoginHistory(req, null, 'SchoolAccount', false, 'Đăng nhập thất bại');
-            return res.status(500).json({ message: 'Đã xảy ra lỗi trong quá trình đăng nhập.' });
-        }
+  const { schoolId, email, password } = req.body;
+  let loginSuccess = false;
+  try {
+    if (!schoolId || schoolId.trim() === '') {
+      throw new Error('ID trường học không hợp lệ.');
     }
+
+    if (!email || email.trim() === '') {
+      throw new Error('Email không được để trống.');
+    }
+
+    if (!password || password.trim() === '') {
+      throw new Error('Mật khẩu không được để trống.');
+    }
+
+    const school = await School.findById(schoolId);
+    if (!school) {
+      throw new Error('Thông tin đăng nhập không chính xác.');
+    }
+
+    if (school.isDeleted || !school.isActive) {
+      throw new Error('Tài khoản trường học đang được xử lý, vui lòng thử lại sau.');
+    }
+
+    const account = school.accounts.find(acc => acc.email === email && !acc.isDeleted);
+    if (!account) {
+      throw new Error('Thông tin đăng nhập không chính xác.');
+    }
+
+    if (!account.isActive) {
+      throw new Error('Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.');
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, account.passwordHash);
+    if (!isPasswordValid) {
+      throw new Error('Thông tin đăng nhập không chính xác.');
+    }
+
+    const ipAddress = req.ip;
+    const { accessToken, refreshToken } = generateTokens(account, 'SchoolAccount', ipAddress, { schoolId: school._id });
+
+    account.refreshToken = refreshToken;
+    await school.save();
+
+    await saveLoginHistory(req, account, 'SchoolAccount', true);
+
+    const isNewDev = await isNewDevice(account, 'SchoolAccount', ipAddress, req.headers['user-agent']);
+    if (isNewDev) {
+      await Notification.insert({
+        recipient: account._id,
+        recipientModel: 'SchoolAccount',
+        type: 'account',
+        content: 'Đăng nhập từ thiết bị mới được phát hiện. Nếu không phải bạn, hãy thay đổi mật khẩu ngay lập tức.'
+      });
+    }
+
+    loginSuccess = true;
+    return res.json(prepareLoginResponse(account, accessToken, refreshToken));
+  } catch (error) {
+    if (!res.headersSent) {
+      await saveLoginHistory(req, null, 'SchoolAccount', false, error.message);
+      const { status, message } = handleError(error);
+      return res.status(status).json({ message });
+    }
+  } finally {
+    if (!loginSuccess && !res.headersSent) {
+      await saveLoginHistory(req, null, 'SchoolAccount', false, 'Đăng nhập thất bại');
+      return res.status(500).json({ message: 'Đã xảy ra lỗi trong quá trình đăng nhập.' });
+    }
+  }
 };
 
 /**
@@ -683,6 +694,16 @@ router.post('/change-password', authenticate(), async (req, res) => {
     res.json({ message: 'Đổi mật khẩu thành công' });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// Thêm route này vào cuối file, trước export default router
+router.get('/schools', async (req, res) => {
+  try {
+    const schools = await School.find({ isDeleted: false }, 'name address');
+    res.json(schools);
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi khi lấy danh sách trường học', error: error.message });
   }
 });
 

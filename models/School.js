@@ -59,9 +59,11 @@ const SchoolAccountSchema = new Schema({
                 set: (value) => sanitizeHtml(value, sanitizeOptions)
             }
         },
+        _id: false,
         required: true
     },
     isDeleted: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
     refreshToken: { type: String, default: null },
     lastLogin: { type: Date },
 avatar: {
@@ -121,6 +123,7 @@ const SchoolSchema = new Schema({
     },
     accounts: [SchoolAccountSchema],
     isDeleted: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: false },
     establishedDate: { type: Date },
     website: { 
         type: String, 
@@ -144,8 +147,8 @@ SchoolAccountSchema.pre('validate', function(next) {
     if (this.isNew && !this._password) {
         this.invalidate('password', 'Mật khẩu không được bỏ trống');
     }
-    if (this._password && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{6,}$/.test(this._password)) {
-        this.invalidate('password', 'Mật khẩu phải chứa ít nhất một chữ hoa, một chữ thường và một số, và có ít nhất 6 ký tự.');
+    if (this._password && this._password.length < 6) {
+        this.invalidate('password', 'Mật khẩu phải có ít nhất 6 ký tự.');
     }
     if (this.name) {
         this.name = sanitizeHtml(this.name, sanitizeOptions);
@@ -299,6 +302,60 @@ SchoolSchema.statics.register = async function(schoolData, accountData) {
         session.endSession();
         throw error;
     }
+};
+
+SchoolSchema.statics.findSchoolAccountById = async function(decoded) {
+    const School = mongoose.model('School'); // Thêm dòng này
+    const school = await School.findOne({ 'accounts._id': decoded._id });
+    if (!school) {
+        return null;
+    }
+    const account = school.accounts.id(decoded._id);
+    console.log('findSchoolAccountById - account:', account);
+    return account ? {
+        ...account.toObject(),
+        school: school._id,
+        schoolId: school._id,
+        role: account.role
+    } : null;
+};
+
+SchoolSchema.statics.getFilteredAccounts = async function(schoolId, query) {
+    const school = await this.findById(schoolId);
+    if (!school) {
+        throw new Error('Không tìm thấy trường.');
+    }
+
+    let accounts = school.accounts.filter(account => !account.isDeleted).map(account => ({
+        _id: account._id,
+        name: account.name,
+        email: account.email,
+        role: account.role,
+        isActive: account.isActive,
+        address: account.address,
+        avatar: account.avatar,
+        createdAt: account.createdAt
+    }));
+
+    // Lọc
+    if (query.role) {
+        accounts = accounts.filter(account => account.role.name === query.role);
+    }
+    if (query.isActive !== undefined) {
+        accounts = accounts.filter(account => account.isActive === (query.isActive === 'true'));
+    }
+
+    // Tìm kiếm
+    if (query.search) {
+        const search = query.search.toLowerCase();
+        accounts = accounts.filter(account => 
+            account.name.toLowerCase().includes(search) ||
+            account.email.toLowerCase().includes(search) ||
+            (account.address && account.address.toLowerCase().includes(search))
+        );
+    }
+
+    return accounts;
 };
 
 const School = mongoose.model('School', SchoolSchema);
