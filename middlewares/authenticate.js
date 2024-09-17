@@ -55,9 +55,6 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
       req.user.role = user.role;
     }
 
-    console.log('Authenticated user:', req.user);
-    console.log('User model:', req.userModel);
-
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
