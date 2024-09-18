@@ -2,8 +2,11 @@ export const handleError = (error) => {
   console.error('Lỗi:', error);
   
   if (error.name === 'ValidationError') {
-    const messages = Object.values(error.errors).map(err => err.message);
+    const messages = Object.keys(error.errors).map(key => `${key}:${error.errors[key].message}`);
     return { status: 400, message: messages.join(', ') };
+  }
+  if (error.name === 'CastError' && error.kind === 'ObjectId') {
+    return { status: 400, message: 'Id không hợp lệ' };
   }
   
   if (error.code === 11000) {

@@ -10,8 +10,17 @@ import jwt from 'jsonwebtoken';
 import { handleError } from '../utils/errorHandler.js';
 import { encrypt, decrypt } from '../utils/encryption.js';
 import { emailChangeLimiter } from '../utils/rateLimiter.js';
+import Major from '../models/Major.js';
+import axios from 'axios';
+import mongoose from 'mongoose';
 
 const router = express.Router();
+
+// Đảm bảo rằng School.findSchoolAccountById tồn tại và là một hàm
+console.log('School.findSchoolAccountById:', School.findSchoolAccountById);
+
+const authenticateSchoolAdmin = authenticate(School, (decoded) => School.findSchoolAccountById(decoded, 'admin'));
+const authenticateSchoolAccount = authenticate(School, School.findSchoolAccountById);
 
 /**
  * @swagger
@@ -34,7 +43,7 @@ const router = express.Router();
  *       404:
  *         description: Không tìm thấy sinh viên
  */
-router.post('/approve-student/:studentId', authenticate(School, School.findById, 'admin'), async (req, res) => {
+router.post('/approve-student/:studentId', authenticateSchoolAdmin, async (req, res) => {
     try {
       const student = await Student.findById(req.params.studentId);
       if (!student) {
@@ -191,11 +200,7 @@ router.get('/activate/:token', async (req, res) => {
     }
 });
 
-// Middleware xác thực cho admin trường học
-const authenticateSchoolAdmin = authenticate(School, School.findSchoolAccountById, 'admin');
 
-// Middleware xác thực cho tất cả tài khoản trường học
-const authenticateSchoolAccount = authenticate(School, School.findSchoolAccountById);
 
 /**
  * @swagger
@@ -440,6 +445,531 @@ router.post('/accounts', authenticateSchoolAdmin, async (req, res) => {
         console.error('Error creating account:', error);
         const { status, message } = handleError(error);
         res.status(status).json({ message });
+    }
+});
+
+router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
+    const { studentId } = req.body;
+    const school = await School.findById(req.user.school);
+
+    if (!school || !school.studentApiConfig || !school.studentApiConfig.uri) {
+        return res.status(400).json({ message: 'Cấu hình API không hợp lệ.' });
+    }
+
+    try {
+        const response = await axios.get(`${school.studentApiConfig.uri}/${studentId}`);
+        const studentData = response.data;
+
+        const student = await Student.findOne({ studentId, school: school._id });
+        if (!student) {
+            const newStudent = new Student({
+                name: studentData[school.studentApiConfig.fieldMappings.name],
+                email: studentData[school.studentApiConfig.fieldMappings.email],
+                studentId: studentData[school.studentApiConfig.fieldMappings.studentId],
+                major: studentData[school.studentApiConfig.fieldMappings.major],
+                dateOfBirth: studentData[school.studentApiConfig.fieldMappings.dateOfBirth],
+                school: school._id,
+                password: studentData[school.studentApiConfig.fieldMappings.defaultPassword] || student.generateDefaultPassword()
+            });
+            await newStudent.save();
+            return res.status(201).json(newStudent);
+        }
+
+        res.status(200).json(student);
+    } catch (error) {
+        res.status(500).json({ message: 'Lỗi khi đồng bộ sinh viên.', error: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/school/configure-guest-api:
+ *   post:
+ *     summary: Cấu hình API khách và quy tắc mật khẩu
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               apiConfig:
+ *                 type: object
+ *                 properties:
+ *                   uri:
+ *                     type: string
+ *                     description: URL của API khách
+ *                   fieldMappings:
+ *                     type: object
+ *                     properties:
+ *                       name:
+ *                         type: string
+ *                         description: Tên trường dữ liệu cho tên sinh viên
+ *                       email:
+ *                         type: string
+ *                         description: Tên trường dữ liệu cho email sinh viên
+ *                       studentId:
+ *                         type: string
+ *                         description: Tên trường dữ liệu cho mã số sinh viên
+ *                       major:
+ *                         type: string
+ *                         description: Tên trường dữ liệu cho ngành học
+ *                       dateOfBirth:
+ *                         type: string
+ *                         description: Tên trường dữ liệu cho ngày sinh
+ *               passwordRule:
+ *                 type: object
+ *                 properties:
+ *                   template:
+ *                     type: string
+ *                     description: Mẫu mật khẩu, ví dụ "School${ngaysinh}2023"
+ *     responses:
+ *       200:
+ *         description: Cấu hình API khách và quy tắc mật khẩu thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/School'
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào hoặc API không hoạt động
+ *       401:
+ *         description: Không có quyền truy cập
+ *       500:
+ *         description: Lỗi server
+ */
+
+router.post('/configure-guest-api', authenticateSchoolAdmin, async (req, res) => {
+    const { apiConfig, passwordRule } = req.body;
+
+    try {
+        const school = await School.configureGuestApi(req.user.school, apiConfig, passwordRule);
+        res.status(200).json({ message: 'Cấu hình API khách và quy tắc mật khẩu thành công', school });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/school/review-password-rule:
+ *   post:
+ *     summary: Review quy tắc mật khẩu
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               passwordRule:
+ *                 type: object
+ *                 properties:
+ *                   template:
+ *                     type: string
+ *                     description: |
+ *                       Mẫu mật khẩu, ví dụ: "School${ngaysinh}2023"
+ *                     example: "School${ngaysinh}2023"
+ *               dateOfBirth:
+ *                 type: string
+ *                 format: date
+ *                 description: Ngày sinh của sinh viên
+ *                 example: "1995-01-01"
+ *     responses:
+ *       200:
+ *         description: Mật khẩu được tạo dựa trên quy tắc
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 password:
+ *                   type: string
+ *                   description: Mật khẩu được tạo
+ *                   example: "School010119952023"
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào
+ */
+
+router.post('/review-password-rule', async (req, res) => {
+    const { passwordRule, dateOfBirth } = req.body;
+
+    try {
+        const Student = mongoose.model('Student');
+        const password = await Student.generatePasswordFromRule(passwordRule, dateOfBirth);
+        res.status(200).json({ password });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/school/test-data/{id}:
+ *   get:
+ *     summary: Lấy dữ liệu giả theo ID
+ *     tags: [School]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID của dữ liệu giả
+ *     responses:
+ *       200:
+ *         description: Dữ liệu giả được lấy thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 name:
+ *                   type: string
+ *                 email:
+ *                   type: string
+ *                 studentId:
+ *                   type: string
+ *                 dateOfBirth:
+ *                   type: string
+ *                   format: date
+ *                 major:
+ *                   type: string
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào
+ */
+router.get('/test-data/:id', async (req, res) => {
+    const { id } = req.params;
+
+    // Dữ liệu giả
+    const fakeData = {
+        id,
+        name: 'Nguyen Van A',
+        email: 'nguyenvana@example.com',
+        studentId: '123456',
+        dateOfBirth: '2000-01-01',
+        major: 'Computer Science'
+    };
+
+    res.status(200).json(fakeData);
+});
+
+// Tạo sinh viên mới
+router.post('/students', authenticateSchoolAdmin, async (req, res) => {
+    const { name, email, password, studentId, dateOfBirth, major } = req.body;
+    const schoolId = req.user.school;
+
+    try {
+        const school = await School.findById(schoolId);
+        if (!password && (!school.studentApiConfig || !school.studentApiConfig.passwordRule || !school.studentApiConfig.passwordRule.template)) {
+            return res.status(400).json({ 
+                message: 'Vui lòng cập nhật quy tắc mật khẩu hoặc cung cấp mật khẩu cho sinh viên.',
+                code: 'NO_PASSWORD_RULE'
+            });
+        }
+
+        let majorDoc = await Major.findOne({ name: major });
+        if (!majorDoc) {
+            majorDoc = new Major({ name: major });
+            await majorDoc.save();
+        }
+
+        const newStudent = new Student({
+            name,
+            email,
+            studentId,
+            dateOfBirth,
+            major: majorDoc._id,
+            school: schoolId
+        });
+
+        if (!password) {
+            const defaultPassword = await newStudent.generateDefaultPassword();
+            if (!defaultPassword) {
+                return res.status(400).json({ 
+                    message: 'Vui lòng cập nhật quy tắc mật khẩu hoặc cung cấp mật khẩu cho sinh viên.',
+                    code: 'NO_PASSWORD_RULE'
+                });
+            }
+            newStudent.password = defaultPassword;
+        } else {
+            newStudent.password = password;
+        }
+
+        await newStudent.save();
+        res.status(201).json(newStudent);
+    } catch (error) {
+        const { status, message } = handleError(error);
+        res.status(status).json({ message });
+    }
+});
+
+// Lấy danh sách sinh viên
+router.get('/students', authenticateSchoolAccount, async (req, res) => {
+    const schoolId = req.user.school;
+
+    try {
+        const students = await Student.find({ school: schoolId, isDeleted: false });
+        res.status(200).json(students);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Lấy sinh viên theo ID
+router.get('/students/:id', authenticateSchoolAccount, async (req, res) => {
+    const { id } = req.params;
+    const schoolId = req.user.school;
+
+    try {
+        const student = await Student.findOne({ _id: id, school: schoolId, isDeleted: false });
+
+        if (!student) {
+            return res.status(404).json({ message: 'Không tìm thấy sinh viên.' });
+        }
+
+        res.status(200).json(student);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Cập nhật sinh viên
+router.put('/students/:id', authenticateSchoolAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { name, email, password, studentId, dateOfBirth, major } = req.body;
+    const schoolId = req.user.school;
+
+    try {
+        const student = await Student.findOneAndUpdate(
+            { _id: id, school: schoolId, isDeleted: false },
+            { name, email, password, studentId, dateOfBirth, major },
+            { new: true }
+        );
+
+        if (!student) {
+            return res.status(404).json({ message: 'Không tìm thấy sinh viên.' });
+        }
+
+        res.status(200).json(student);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+});
+
+// Xóa sinh viên
+router.delete('/students/:id', authenticateSchoolAdmin, async (req, res) => {
+    const { id } = req.params;
+    const schoolId = req.user.school;
+
+    try {
+        const student = await Student.findOneAndUpdate(
+            { _id: id, school: schoolId, isDeleted: false },
+            { isDeleted: true },
+            { new: true }
+        );
+
+        if (!student) {
+            return res.status(404).json({ message: 'Không tìm thấy sinh viên.' });
+        }
+
+        res.status(200).json({ message: 'Sinh viên đã được xóa thành công.' });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/school/students:
+ *   post:
+ *     summary: Tạo sinh viên mới
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               studentId:
+ *                 type: string
+ *               dateOfBirth:
+ *                 type: string
+ *                 format: date
+ *               major:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Sinh viên đã được tạo thành công
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào
+ *   get:
+ *     summary: Lấy danh sách sinh viên
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Danh sách sinh viên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Student'
+ *       500:
+ *         description: Lỗi máy chủ
+ * 
+ * /api/school/students/{id}:
+ *   get:
+ *     summary: Lấy sinh viên theo ID
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID của sinh viên
+ *     responses:
+ *       200:
+ *         description: Thông tin sinh viên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Student'
+ *       404:
+ *         description: Không tìm thấy sinh viên
+ *       500:
+ *         description: Lỗi máy chủ
+ *   put:
+ *     summary: Cập nhật sinh viên
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID của sinh viên
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               studentId:
+ *                 type: string
+ *               dateOfBirth:
+ *                 type: string
+ *                 format: date
+ *               major:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Sinh viên đã được cập nhật thành công
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào
+ *       404:
+ *         description: Không tìm thấy sinh viên
+ *   delete:
+ *     summary: Xóa sinh viên
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID của sinh viên
+ *     responses:
+ *       200:
+ *         description: Sinh viên đã được xóa thành công
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào
+ *       404:
+ *         description: Không tìm thấy sinh viên
+ */
+/**
+ * @swagger
+ * /api/school/update-password-rule:
+ *   put:
+ *     summary: Cập nhật quy tắc mật khẩu cho sinh viên
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               passwordRule:
+ *                 type: object
+ *                 properties:
+ *                   template:
+ *                     type: string
+ *                     description: Mẫu mật khẩu, ví dụ "School${ngaysinh}2023"
+ *     responses:
+ *       200:
+ *         description: Cập nhật quy tắc mật khẩu thành công
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào
+ *       401:
+ *         description: Không có quyền truy cập
+ *       404:
+ *         description: Không tìm thấy trường học
+ *       500:
+ *         description: Lỗi server
+ */
+router.put('/update-password-rule', authenticateSchoolAdmin, async (req, res) => {
+    const { passwordRule } = req.body;
+    const schoolId = req.user.school;
+
+    try {
+        const school = await School.findById(schoolId);
+        if (!school) {
+            return res.status(404).json({ message: 'Không tìm thấy trường học.' });
+        }
+
+        school.studentApiConfig = school.studentApiConfig || {};
+        school.studentApiConfig.passwordRule = passwordRule;
+
+        await school.save();
+
+        res.status(200).json({ message: 'Cập nhật quy tắc mật khẩu thành công.', passwordRule: school.studentApiConfig.passwordRule });
+    } catch (error) {
+        res.status(400).json({ message: 'Lỗi khi cập nhật quy tắc mật khẩu.', error: error.message });
     }
 });
 

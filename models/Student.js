@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
+import dotenv from 'dotenv';
+dotenv.config();
+
 const { Schema } = mongoose;
 import LoginHistory from './LoginHistory.js';
 import validator from 'validator';
@@ -11,13 +14,23 @@ const sanitizeOptions = {
     disallowedTagsMode: 'discard'
 };
 
+// Hàm giải mã HTML entities đơn giản
+const decodeHtmlEntities = (str) => {
+    if (!str) return '';
+    return str.replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#039;/g, "'");
+};
+
 const StudentSchema = new Schema({
     name: {
         type: String,
         required: [true, 'Tên sinh viên không được bỏ trống'],
         maxlength: [100, 'Tên sinh viên không được vượt quá 100 ký tự'],
-        set: (value) => sanitizeHtml(value, sanitizeOptions),
-        get: (value) => sanitizeHtml.defaults.decoder(value)
+        set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+        get: (value) => value ? decodeHtmlEntities(value) : ''
     },
     email: {
         type: String,
@@ -26,17 +39,15 @@ const StudentSchema = new Schema({
         maxlength: [255, 'Email không được vượt quá 255 ký tự'],
         set: (value) => validator.normalizeEmail(value)
     },
-    password: {
+    passwordHash: {
         type: String,
-        required: [true, 'Mật khẩu không được bỏ trống'],
-        maxlength: [128, 'Mật khẩu không được vượt quá 128 ký tự']
     },
     studentId: {
         type: String,
         required: [true, 'Mã số sinh viên không được bỏ trống'],
         maxlength: [20, 'Mã số sinh viên không được vượt quá 20 ký tự'],
-        set: (value) => sanitizeHtml(value, sanitizeOptions),
-        get: (value) => sanitizeHtml.defaults.decoder(value)
+        set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+        get: (value) => value ? decodeHtmlEntities(value) : ''
     },
     school: { type: Schema.Types.ObjectId, ref: 'School', required: [true, 'Trường không được bỏ trống'] },
     createdBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
@@ -68,8 +79,8 @@ const StudentSchema = new Schema({
         type: String,
         trim: true,
         maxlength: [200, 'Địa chỉ không được vượt quá 200 ký tự'],
-        set: (value) => sanitizeHtml(value, sanitizeOptions),
-        get: (value) => sanitizeHtml.defaults.decoder(value)
+        set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+        get: (value) => value ? decodeHtmlEntities(value) : ''
     },
     notificationSettings: {
         taskNotifications: { type: Boolean, default: true },
@@ -82,42 +93,42 @@ const StudentSchema = new Schema({
         title: {
             type: String,
             maxlength: [100, 'Tiêu đề kinh nghiệm không được vượt quá 100 ký tự'],
-            set: (value) => sanitizeHtml(value, sanitizeOptions),
-            get: (value) => sanitizeHtml.defaults.decoder(value)
+            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         company: {
             type: String,
             maxlength: [100, 'Tên công ty không được vượt quá 100 ký tự'],
-            set: (value) => sanitizeHtml(value, sanitizeOptions),
-            get: (value) => sanitizeHtml.defaults.decoder(value)
+            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         startDate: Date,
         endDate: Date,
         description: {
             type: String,
             maxlength: [500, 'Mô tả kinh nghiệm không được vượt quá 500 ký tự'],
-            set: (value) => sanitizeHtml(value, sanitizeOptions),
-            get: (value) => sanitizeHtml.defaults.decoder(value)
+            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+            get: (value) => value ? decodeHtmlEntities(value) : ''
         }
     }],
     education: [{
         school: {
             type: String,
             maxlength: [100, 'Tên trường không được vượt quá 100 ký tự'],
-            set: (value) => sanitizeHtml(value, sanitizeOptions),
-            get: (value) => sanitizeHtml.defaults.decoder(value)
+           set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         degree: {
             type: String,
             maxlength: [50, 'Bằng cấp không được vượt quá 50 ký tự'],
-            set: (value) => sanitizeHtml(value, sanitizeOptions),
-            get: (value) => sanitizeHtml.defaults.decoder(value)
+            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         fieldOfStudy: {
             type: String,
             maxlength: [100, 'Ngành học không được vượt quá 100 ký tự'],
-            set: (value) => sanitizeHtml(value, sanitizeOptions),
-            get: (value) => sanitizeHtml.defaults.decoder(value)
+            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         startDate: Date,
         endDate: Date
@@ -138,6 +149,37 @@ const StudentSchema = new Schema({
     approvedBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
     approvedAt: { type: Date },
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
+
+StudentSchema.virtual('password')
+    .get(function() {
+        return this._password;
+    })
+    .set(function(value) {
+        this._password = value;
+        if (value) {
+            this.passwordHash = this.constructor.hashPassword(value);
+        }
+    });
+
+StudentSchema.statics.hashPassword = function(password) {
+    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 10;
+    return bcrypt.hashSync(password, saltRounds);
+};
+
+StudentSchema.pre('save', async function(next) {
+    if (this.isNew && !this._password) {
+        try {
+            const defaultPassword = await this.generateDefaultPassword();
+            if (!defaultPassword) {
+                return next(new Error('Mật khẩu không được để trống'));
+            }
+            this.password = defaultPassword;
+        } catch (error) {
+            return next(error);
+        }
+    }
+    next();
+});
 
 StudentSchema.pre('save', async function (next) {
     if (this.isModified('name')) {
@@ -161,11 +203,19 @@ StudentSchema.pre('save', async function (next) {
 });
 
 // Unique index để đảm bảo mã số sinh viên là duy nhất trong mỗi trường
-StudentSchema.index({ school: 1, studentId: 1 }, {
-    unique: [true, 'Mã số sinh viên đã tồn tại trong trường này.'],
-    partialFilterExpression: { isDeleted: { $ne: true } }
-});
-
+StudentSchema.index({ school: 1, studentId: 1, isDeleted: 1 }, { unique: true });
+StudentSchema.statics.checkStudentIdExists = async function(schoolId, studentId, currentStudentId) {
+    const query = {
+        school: schoolId,
+        studentId: studentId,
+        isDeleted: false
+    };
+    if (currentStudentId) {
+        query._id = { $ne: currentStudentId };
+    }
+    const existingStudent = await this.findOne(query);
+    return !!existingStudent;
+};
 // Soft delete method
 StudentSchema.methods.softDelete = function () {
     this.isDeleted = true;
@@ -215,6 +265,15 @@ StudentSchema.statics.login = async function (schoolId, studentId, password, req
 };
 
 // Thêm các ràng buộc và xác thực cho các trường
+StudentSchema.path('passwordHash').validate(function() {
+    if (this._password) {
+        if (this._password.length < 6) {
+            this.invalidate('password', 'Mật khẩu phải có ít nhất 6 ký tự');
+        }
+    } else if (this.isNew) {
+        this.invalidate('password', 'Mật khẩu không được bỏ trống');
+    }
+}, 'Mật khẩu không được bỏ trống');
 
 StudentSchema.path('name').validate(function (value) {
     return value.length >= 2 && value.length <= 100;
@@ -225,31 +284,63 @@ StudentSchema.path('email').validate(function (value) {
     return emailRegex.test(value);
 }, 'Email không hợp lệ');
 
-StudentSchema.path('password').validate(function (value) {
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/;
-    return passwordRegex.test(value);
-}, 'Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số');
-
-StudentSchema.path('studentId').validate(function (value) {
+StudentSchema.path('studentId').validate(async function(value) {
+    if (this.isNew || (this.isModified('studentId') && this.studentId !== value)) {
+        const exists = await this.constructor.checkStudentIdExists(this.school, value);
+        if (exists) {
+            throw new Error('Mã số sinh viên đã tồn tại trong trường này.');
+        }
+    }
     return value.length >= 5 && value.length <= 20;
 }, 'Mã số sinh viên phải có độ dài từ 5 đến 20 ký tự');
 
-// Thêm phương thức để mã hóa mật khẩu trước khi lưu
-StudentSchema.pre('save', async function (next) {
-    if (!this.isModified('password')) return next();
-    try {
-        const salt = await bcrypt.genSalt(SALT_ROUNDS);
-        this.password = await bcrypt.hash(this.password, salt);
-        next();
-    } catch (error) {
-        next(error);
+// Thêm phương thức để tạo mật khẩu mặc định
+StudentSchema.statics.generatePasswordFromRule = function (passwordRule, dateOfBirth) {
+    if (!passwordRule || !passwordRule.template) {
+        throw new Error('Quy tắc mật khẩu không hợp lệ.');
     }
-});
+
+    let password = passwordRule.template;
+
+    if (dateOfBirth) {
+        const date = new Date(dateOfBirth);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        const formattedDateOfBirth = `${day}${month}${year}`;
+
+        password = password.replace('${ngaysinh}', formattedDateOfBirth);
+    }
+
+    return password;
+};
+
+StudentSchema.methods.generateDefaultPassword = async function () {
+    const school = await mongoose.model('School').findById(this.school);
+    if (!school || !school.studentApiConfig || !school.studentApiConfig.passwordRule) {
+        throw new Error('Quy tắc mật khẩu không hợp lệ hoặc chưa được cấu hình.');
+    }
+
+    return this.constructor.generatePasswordFromRule(school.studentApiConfig.passwordRule, this.dateOfBirth);
+};
 
 // Thêm phương thức để so sánh mật khẩu
-StudentSchema.methods.comparePassword = async function (candidatePassword) {
-    return bcrypt.compare(candidatePassword, this.password);
+StudentSchema.methods.comparePassword = function(candidatePassword) {
+    return bcrypt.compareSync(candidatePassword, this.passwordHash);
 };
+// StudentSchema.methods = {
+//     encryptPassword: function(password) {
+//         if (!password) return '';
+//         try {
+//             return bcrypt.hashSync(password, 10);
+//         } catch (err) {
+//             return '';
+//         }
+//     },
+//     authenticate: function(plainText) {
+//         return bcrypt.compareSync(plainText, this.hashedPassword);
+//     }
+// };
 
 // Thêm phương thức để tìm kiếm sinh viên sử dụng prepared statement
 StudentSchema.statics.findBySchoolAndStudentId = async function (schoolId, studentId) {
@@ -260,23 +351,6 @@ StudentSchema.statics.findBySchoolAndStudentId = async function (schoolId, stude
     }).exec();
 };
 
-// Thêm middleware để sanitize dữ liệu
-StudentSchema.pre('validate', function (next) {
-    if (this.name) {
-        this.name = sanitizeString(this.name);
-    }
-    if (this.email) {
-        this.email = validator.normalizeEmail(this.email);
-    }
-    if (this.studentId) {
-        this.studentId = sanitizeString(this.studentId);
-    }
-    if (this.address) {
-        this.address = sanitizeHtmlContent(this.address);
-    }
-    // Không sanitize password vì nó sẽ được mã hóa
-    next();
-});
 
 // Thêm hàm để lấy danh sách dự án phù hợp
 StudentSchema.methods.getMatchingProjects = async function () {

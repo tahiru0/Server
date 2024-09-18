@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import validator from 'validator';
 import sanitizeHtml from 'sanitize-html';
+import jwt from 'jsonwebtoken';
 
 const SALT_ROUNDS = parseInt(process.env.SALT_ROUNDS || '10', 10);
 
@@ -140,6 +141,13 @@ adminSchema.statics.findAdminById = async function(decoded) {
 
 // Kiểm tra xem model đã tồn tại chưa trước khi tạo
 const Admin = mongoose.models.Admin || mongoose.model('Admin', adminSchema);
+
+// Method để tạo token xác thực
+adminSchema.methods.generateAuthToken = async function() {
+  const admin = this;
+  const token = jwt.sign({ _id: admin._id.toString(), role: admin.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
+  return token;
+};
 
 export default Admin;
 

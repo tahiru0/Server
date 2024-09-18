@@ -1,5 +1,6 @@
 import Notification from '../models/Notification.js';
 import School from '../models/School.js';
+import notificationMessages from './notificationMessages.js';
 
 export const createOrUpdateGroupedNotification = async ({ schoolId, studentName, studentId }) => {
   const school = await School.findById(schoolId);
@@ -19,21 +20,21 @@ export const createOrUpdateGroupedNotification = async ({ schoolId, studentName,
     // Cập nhật thông báo hiện có
     latestNotification.relatedData.count += 1;
     latestNotification.relatedData.latestStudentId = studentId;
-    latestNotification.content = `Sinh viên ${studentName} và ${latestNotification.relatedData.count - 1} người khác đã đăng ký tài khoản mới cho trường của bạn.`;
-    await latestNotification.save();
+    latestNotification.content = notificationMessages.account.groupedRegistration(studentName, latestNotification.relatedData.count - 1);
+    latestNotification.save().catch(error => console.error('Error updating notification:', error));
   } else {
     // Tạo thông báo mới
-    await Notification.create({
+    Notification.create({
       recipient: school.admin,
       recipientModel: 'SchoolAdmin',
       type: 'account',
-      content: `Sinh viên ${studentName} đã đăng ký tài khoản mới cho trường của bạn.`,
+      content: notificationMessages.account.newRegistration(studentName),
       relatedData: {
         schoolId,
         count: 1,
         firstStudentName: studentName,
         latestStudentId: studentId
       }
-    });
+    }).catch(error => console.error('Error creating notification:', error));
   }
 };

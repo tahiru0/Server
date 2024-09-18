@@ -18,7 +18,7 @@ export default function configureRoutes(app) {
     const filePath = path.join(__dirname, '..', 'public', 'uploads', req.path);
     fs.access(filePath, fs.constants.F_OK, err => {
       if (err) {
-        const defaultIconPath = path.join(__dirname, '..', 'public', 'assets', 'defaultIcon.svg');
+        const defaultIconPath = path.join(__dirname, '..', 'assets', 'defaultIcon.svg');
         res.sendFile(defaultIconPath);
       } else {
         express.static(path.join(__dirname, '..', 'public', 'uploads'))(req, res, next);

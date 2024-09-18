@@ -10,10 +10,23 @@ import { filterSearchSort, applyFilters, applySearch, applySorting } from '../ut
 import { handleError } from '../utils/errorHandler.js';
 import multer from 'multer';
 import path from 'path';
+import Notification from '../models/Notification.js';
+import Student from '../models/Student.js';
+import authenticate from '../middlewares/authenticate.js';
+import Admin from '../models/Admin.js';
 
 dotenv.config();
 
 const router = express.Router();
+
+// Hàm tìm admin theo ID
+const findAdminById = async (decoded) => {
+  return await Admin.findById(decoded._id);
+};
+
+// Hàm xác thực admin
+const authenticateAdmin = authenticate(Admin, findAdminById, 'admin');
+
 
 /**
  * @swagger
@@ -49,7 +62,7 @@ const router = express.Router();
  *       500:
  *         description: Lỗi server
  */
-router.get('/companies', async (req, res, next) => {
+router.get('/companies', authenticateAdmin, async (req, res, next) => {
   try {
     const result = await filterSearchSort(Company, req.query, {
       filterFields: ['name', 'address'],
@@ -87,7 +100,7 @@ router.get('/companies', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.post('/companies', async (req, res, next) => {
+router.post('/companies', authenticateAdmin, async (req, res, next) => {
   try {
     const newCompany = new Company(req.body);
     const savedCompany = await newCompany.save();
@@ -97,7 +110,7 @@ router.post('/companies', async (req, res, next) => {
   }
 });
 
-router.get('/companies/:id', async (req, res, next) => {
+router.get('/companies/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const company = await Company.findById(req.params.id).populate('accounts', '-password');
     if (!company) {
@@ -109,7 +122,7 @@ router.get('/companies/:id', async (req, res, next) => {
   }
 });
 
-router.put('/companies/:id', async (req, res, next) => {
+router.put('/companies/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const updatedCompany = await Company.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!updatedCompany) {
@@ -121,7 +134,7 @@ router.put('/companies/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/companies/:id', async (req, res, next) => {
+router.delete('/companies/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const deletedCompany = await Company.findByIdAndDelete(req.params.id);
     if (!deletedCompany) {
@@ -160,7 +173,7 @@ router.delete('/companies/:id', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.get('/schools', async (req, res, next) => {
+router.get('/schools', authenticateAdmin, async (req, res, next) => {
   try {
     const result = await filterSearchSort(School, req.query, {
       filterFields: ['name', 'address'],
@@ -220,7 +233,7 @@ const upload = multer({ storage: storage });
  *       500:
  *         description: Lỗi server
  */
-router.post('/schools', upload.single('logo'), async (req, res, next) => {
+router.post('/schools', authenticateAdmin, upload.single('logo'), async (req, res, next) => {
   try {
     console.log('Received request body:', req.body);
     console.log('Received file:', req.file);
@@ -304,7 +317,7 @@ router.post('/schools', upload.single('logo'), async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.get('/schools/:id', async (req, res, next) => {
+router.get('/schools/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const school = await School.findById(req.params.id).populate('accounts', '-password');
     if (!school) {
@@ -346,7 +359,7 @@ router.get('/schools/:id', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.put('/schools/:id', async (req, res, next) => {
+router.put('/schools/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const updatedSchool = await School.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!updatedSchool) {
@@ -380,7 +393,7 @@ router.put('/schools/:id', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.delete('/schools/:id', async (req, res, next) => {
+router.delete('/schools/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const deletedSchool = await School.findByIdAndDelete(req.params.id);
     if (!deletedSchool) {
@@ -427,7 +440,7 @@ router.delete('/schools/:id', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.post('/send-email', async (req, res, next) => {
+router.post('/send-email', authenticateAdmin, async (req, res, next) => {
   const { to, subject, htmlContent, type } = req.body;
 
   try {
@@ -495,7 +508,7 @@ router.post('/send-email', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.get('/emails', async (req, res, next) => {
+router.get('/emails', authenticateAdmin, async (req, res, next) => {
   const { search, sort = 'sentAt', order = 'desc', showDeleted, page = 1, limit = 10 } = req.query;
 
   try {
@@ -548,7 +561,7 @@ router.get('/emails', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.post('/emails/restore/:id', async (req, res, next) => {
+router.post('/emails/restore/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const email = await restoreEmail(req.params.id);
     res.status(200).json({ message: 'Email đã được khôi phục.', email });
@@ -583,7 +596,7 @@ router.post('/emails/restore/:id', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.delete('/emails/:id', async (req, res, next) => {
+router.delete('/emails/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const email = await Email.findById(req.params.id);
     if (!email) {
@@ -610,12 +623,119 @@ router.delete('/emails/:id', async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.get('/email-templates', async (req, res, next) => {
+router.get('/email-templates', authenticateAdmin, async (req, res, next) => {
   try {
     const templates = await EmailTemplate.find().sort({ createdAt: -1 });
     res.status(200).json(templates);
   } catch (error) {
     next(error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/send-fake-notification:
+ *   post:
+ *     summary: Gửi thông báo giả cho các đối tượng được chọn
+ *     tags: [Admin]
+ *     security:
+ *       - adminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *               - type
+ *               - recipients
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 description: Nội dung của thông báo
+ *               type:
+ *                 type: string
+ *                 description: Loại thông báo
+ *               recipients:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   enum: [students, companies, schools]
+ *                 description: Danh sách đối tượng nhận thông báo
+ *     responses:
+ *       200:
+ *         description: Thông báo đã được gửi thành công
+ *       400:
+ *         description: Dữ liệu đầu vào không hợp lệ
+ *       401:
+ *         description: Không có quyền truy cập
+ *       500:
+ *         description: Lỗi server
+ */
+router.post('/send-fake-notification', authenticateAdmin, async (req, res) => {
+  try {
+    const { content, type, recipients } = req.body;
+
+    if (!content || !type || !recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ message: 'Nội dung, loại thông báo và danh sách người nhận là bắt buộc' });
+    }
+
+    const notifications = [];
+
+    if (recipients.includes('students')) {
+      const students = await Student.find({});
+      for (const student of students) {
+        notifications.push({
+          recipient: student._id,
+          recipientModel: 'Student',
+          type,
+          content,
+          relatedId: null
+        });
+      }
+    }
+
+    if (recipients.includes('companies')) {
+      const companies = await Company.find({});
+      for (const company of companies) {
+        for (const account of company.accounts) {
+          notifications.push({
+            recipient: account._id,
+            recipientModel: 'CompanyAccount',
+            recipientRole: account.role,
+            type,
+            content,
+            relatedId: null
+          });
+        }
+      }
+    }
+
+    if (recipients.includes('schools')) {
+      const schools = await School.find({});
+      for (const school of schools) {
+        for (const account of school.accounts) {
+          notifications.push({
+            recipient: account._id,
+            recipientModel: 'SchoolAccount',
+            recipientRole: account.role.name,
+            type,
+            content,
+            relatedId: null
+          });
+        }
+      }
+    }
+
+    for (const notificationData of notifications) {
+      await Notification.insert(notificationData);
+    }
+
+    res.json({ message: 'Đã gửi thông báo giả cho các đối tượng được chọn', notificationsSent: notifications.length });
+  } catch (error) {
+    console.error('Lỗi khi gửi thông báo giả:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 

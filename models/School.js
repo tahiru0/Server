@@ -66,12 +66,12 @@ const SchoolAccountSchema = new Schema({
     isActive: { type: Boolean, default: true },
     refreshToken: { type: String, default: null },
     lastLogin: { type: Date },
-avatar: {
-    type: String,
-    default: function() {
-        return `/default/${this.name.charAt(0).toUpperCase()}`;
-    }
-},
+    avatar: {
+        type: String,
+        default: function() {
+            return `/default/${this.name.charAt(0).toUpperCase()}`;
+        }
+    },
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 SchoolAccountSchema.virtual('password')
@@ -128,6 +128,19 @@ const SchoolSchema = new Schema({
     website: { 
         type: String, 
         match: [/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/, 'Vui lòng nhập URL hợp lệ']
+    },
+    studentApiConfig: {
+        uri: { type: String },
+        fieldMappings: {
+            studentId: { type: String },
+            major: { type: String },
+            email: { type: String },
+            dateOfBirth: { type: String }
+        },
+        defaultPassword: { type: String },
+        passwordRule: {
+            template: { type: String, default: '' }
+        }
     }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
@@ -356,6 +369,80 @@ SchoolSchema.statics.getFilteredAccounts = async function(schoolId, query) {
     }
 
     return accounts;
+};
+
+SchoolSchema.statics.configureGuestApi = async function(schoolId, apiConfig, passwordRule) {
+    const school = await this.findById(schoolId);
+    if (!school) {
+        throw new Error('Không tìm thấy trường.');
+    }
+
+    // Cập nhật cấu hình API khách
+    school.guestApiConfig = apiConfig;
+
+    // Cập nhật quy tắc mật khẩu
+    school.studentApiConfig.passwordRule = passwordRule;
+
+    // Kiểm tra request để đảm bảo API hoạt động
+    try {
+        const response = await axios.get(apiConfig.uri);
+        if (response.status !== 200) {
+            throw new Error('API không hoạt động.');
+        }
+    } catch (error) {
+        if (error.response) {
+            // API truy cập được nhưng trả về mã lỗi
+            throw new Error('API không hoạt động: ' + error.response.statusText);
+        } else if (error.request) {
+            // Không thể kết nối đến API
+            throw new Error('Không thể kết nối đến API.');
+        } else {
+            // Lỗi khác
+            throw new Error('Lỗi khi kiểm tra API: ' + error.message);
+        }
+    }
+    SchoolSchema.statics.findSchoolAdminById = async function(decoded) {
+        const school = await this.findOne({ 'accounts._id': decoded._id });
+        if (!school) {
+            return null;
+        }
+        const account = school.accounts.id(decoded._id);
+        if (!account || account.role.name !== 'admin') {
+            return null;
+        }
+        return {
+            ...account.toObject(),
+            school: school._id,
+            schoolId: school._id,
+            role: account.role
+        };
+    };
+    
+    SchoolSchema.statics.findSchoolAccountById = async function(decoded, requiredRole) {
+        const school = await this.findOne({ 'accounts._id': decoded._id });
+        if (!school) {
+            return null;
+        }
+        const account = school.accounts.id(decoded._id);
+        if (!account) {
+            return null;
+        }
+    
+        // Kiểm tra vai trò nếu requiredRole được cung cấp
+        if (requiredRole && account.role.name !== requiredRole) {
+            return null;
+        }
+    
+        return {
+            ...account.toObject(),
+            school: school._id,
+            schoolId: school._id,
+            role: account.role
+        };
+    };
+
+    await school.save();
+    return school;
 };
 
 const School = mongoose.model('School', SchoolSchema);

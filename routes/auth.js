@@ -16,15 +16,13 @@ import School from '../models/School.js';
 
 const router = express.Router();
 
-const isNewDevice = async (user, userModel, ipAddress, userAgent) => {
-  const existingLogin = await LoginHistory.findOne({
+const isNewDevice = (user, userModel, ipAddress, userAgent) => {
+  return LoginHistory.findOne({
     user: user._id,
     userModel: userModel,
     ipAddress: ipAddress,
     userAgent: userAgent
-  });
-  
-  return !existingLogin;
+  }).then(existingLogin => !existingLogin);
 };
   
 /**
@@ -319,6 +317,7 @@ const loginSchool = async (req, res) => {
       await Notification.insert({
         recipient: account._id,
         recipientModel: 'SchoolAccount',
+        recipientRole: account.role.name, // Thêm dòng này
         type: 'account',
         content: 'Đăng nhập từ thiết bị mới được phát hiện. Nếu không phải bạn, hãy thay đổi mật khẩu ngay lập tức.'
       });
@@ -380,12 +379,53 @@ const loginStudent = async (req, res) => {
       throw new Error('Mật khẩu không được để trống.');
     }
 
-    const student = await Student.login(schoolId, studentId, password);
+    let student = await Student.findBySchoolAndStudentId(schoolId, studentId);
+
+    if (!student) {
+      // Lấy thông tin sinh viên từ API khách
+      const school = await School.findById(schoolId);
+      if (!school || !school.studentApiConfig || !school.studentApiConfig.uri) {
+        throw new Error('Cấu hình API không hợp lệ.');
+      }
+
+      const response = await axios.get(`${school.studentApiConfig.uri}/${studentId}`);
+      const studentData = response.data;
+
+      // Tạo đối tượng Student tạm thời để gọi phương thức generateDefaultPassword
+      const tempStudent = new Student({
+        dateOfBirth: studentData[school.studentApiConfig.fieldMappings.dateOfBirth],
+        school: schoolId
+      });
+
+      const defaultPassword = studentData[school.studentApiConfig.fieldMappings.defaultPassword] || await tempStudent.generateDefaultPassword();
+
+      if (password !== defaultPassword) {
+        throw new Error('Thông tin đăng nhập không chính xác.');
+      }
+
+      // Tạo sinh viên mới trong database
+      student = new Student({
+        name: studentData[school.studentApiConfig.fieldMappings.name],
+        email: studentData[school.studentApiConfig.fieldMappings.email],
+        studentId: studentData[school.studentApiConfig.fieldMappings.studentId],
+        major: studentData[school.studentApiConfig.fieldMappings.major],
+        dateOfBirth: studentData[school.studentApiConfig.fieldMappings.dateOfBirth],
+        school: schoolId,
+        password: defaultPassword
+      });
+
+      await student.save();
+    } else {
+      const isPasswordValid = await student.comparePassword(password);
+      if (!isPasswordValid) {
+        throw new Error('Thông tin đăng nhập không chính xác.');
+      }
+    }
 
     if (!student.isActive) {
       throw new Error('Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.');
     }
-    
+
     const ipAddress = req.ip;
     const { accessToken, refreshToken } = generateTokens(student, 'Student', ipAddress);
 
@@ -396,12 +436,12 @@ const loginStudent = async (req, res) => {
 
     const isNewDev = await isNewDevice(student, 'Student', ipAddress, req.headers['user-agent']);
     if (isNewDev) {
-      await Notification.insert({
+      Notification.insert({
         recipient: student._id,
         recipientModel: 'Student',
         type: 'account',
         content: 'Đăng nhập từ thiết bị mới được phát hiện. Nếu không phải bạn, hãy thay đổi mật khẩu ngay lập tức.'
-      });
+      }).catch(error => console.error('Error sending notification:', error));
     }
 
     loginSuccess = true;

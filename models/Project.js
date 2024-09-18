@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Notification from './Notification.js';
 import sanitizeHtml from 'sanitize-html';
+import notificationMessages from '../utils/notificationMessages.js';
 
 const sanitizeOptions = {
   allowedTags: [],
@@ -244,10 +245,20 @@ projectSchema.methods.checkAndRemoveApplicants = async function() {
     throw new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này');
   }
   const sevenDaysAgo = new Date(new Date().setDate(new Date().getDate() - 7));
-  this.applicants = this.applicants.filter(applicant => {
-    const isWithinTimeLimit = applicant.appliedDate > sevenDaysAgo;
-    return isWithinTimeLimit;
-  });
+  const removedApplicants = this.applicants.filter(applicant => applicant.appliedDate <= sevenDaysAgo);
+  
+  // Tạo thông báo cho các ứng viên bị loại do hết hạn
+  for (const applicant of removedApplicants) {
+    await Notification.insert({
+      recipient: applicant.applicantId,
+      recipientModel: 'Student',
+      type: 'project',
+      content: notificationMessages.project.applicationExpired(this.title),
+      relatedId: this._id
+    });
+  }
+
+  this.applicants = this.applicants.filter(applicant => applicant.appliedDate > sevenDaysAgo);
   await this.save();
 };
 
@@ -293,13 +304,26 @@ projectSchema.pre('save', async function(next) {
   if (project.isRecruiting && project.applicationEnd < new Date()) {
     project.isRecruiting = false;
     
-    // Di chuyển applicants vào lịch sử
+    // Di chuyển applicants vào lịch sử và tạo thông báo
     const now = new Date();
     const newHistory = project.applicants.map(applicant => ({
       applicantId: applicant.applicantId,
       appliedDate: applicant.appliedDate,
       recruitmentClosedAt: now
     }));
+    
+    // Tạo thông báo cho các ứng viên không được chọn
+    for (const applicant of project.applicants) {
+      if (!project.selectedApplicants.some(selected => selected.studentId.toString() === applicant.applicantId.toString())) {
+        await Notification.insert({
+          recipient: applicant.applicantId,
+          recipientModel: 'Student',
+          type: 'project',
+          content: notificationMessages.project.applicationRejectedAfterClose(project.title),
+          relatedId: project._id
+        });
+      }
+    }
     
     project.applicantHistory.push(...newHistory);
     project.applicants = []; // Xóa tất cả applicants sau khi đã lưu vào lịch sử
@@ -337,8 +361,8 @@ projectSchema.pre('save', async function(next) {
 projectSchema.pre('save', async function(next) {
   if (this.isModified('isRecruiting')) {
     const notificationContent = this.isRecruiting
-      ? `Dự án "${this.title}" đã mở tuyển dụng`
-      : `Dự án "${this.title}" đã đóng tuyển dụng`;
+      ? notificationMessages.project.openRecruitment(this.title)
+      : notificationMessages.project.closeRecruitment(this.title);
 
     await Notification.insert({
       recipient: this.mentor,
@@ -390,12 +414,12 @@ projectSchema.methods.acceptApplicant = async function(applicantId) {
     recipient: applicantId,
     recipientModel: 'Student',
     type: 'project',
-    content: `Bạn đã được chấp nhận vào dự án "${this.title}"`,
+    content: notificationMessages.project.applicationAccepted(this.title),
     relatedId: this._id
   });
 };
 
-projectSchema.methods.removeApplicant = async function(applicantId) {
+projectSchema.methods.removeApplicant = async function(applicantId, reason = 'rejected') {
   const applicantIndex = this.applicants.findIndex(a => a.applicantId.toString() === applicantId.toString());
   if (applicantIndex === -1) {
     throw new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
@@ -405,11 +429,18 @@ projectSchema.methods.removeApplicant = async function(applicantId) {
   await this.save();
 
   // Tạo thông báo cho sinh viên
+  let notificationContent;
+  if (reason === 'expired') {
+    notificationContent = notificationMessages.project.applicationExpired(this.title);
+  } else {
+    notificationContent = notificationMessages.project.applicationRejected(this.title);
+  }
+
   await Notification.insert({
     recipient: applicantId,
     recipientModel: 'Student',
     type: 'project',
-    content: `Bạn đã bị loại khỏi danh sách ứng tuyển của dự án "${this.title}"`,
+    content: notificationContent,
     relatedId: this._id
   });
 };

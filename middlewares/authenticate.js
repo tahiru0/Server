@@ -3,6 +3,10 @@ import mongoose from 'mongoose';
 import { handleError } from '../utils/errorHandler.js';
 
 const authenticate = (Model, findUserById, requiredRole) => async (req, res, next) => {
+  console.log('Model:', Model);
+  console.log('findUserById:', findUserById);
+  console.log('requiredRole:', requiredRole);
+
   const token = req.header('Authorization')?.replace('Bearer ', '');
 
   if (!token) {

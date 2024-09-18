@@ -104,49 +104,51 @@ router.get('/companies', authenticateCompanyAccount, async (req, res) => {
  *         description: Lỗi dữ liệu đầu vào
  */
 router.post('/register', upload.single('logo'), async (req, res) => {
-    const { address, accountName, email, password, companyName } = req.body;
+  const { address, accountName, email, password, companyName } = req.body;
 
-    try {
-        const logoUrl = req.file ? `uploads/logos/company/${req.file.filename}` : null;
+  try {
+      const logoUrl = req.file ? `uploads/logos/company/${req.file.filename}` : null;
 
-        const activationToken = crypto.randomBytes(32).toString('hex');
-        const tokenExpiration = Date.now() + 3600000; // 1 hour
+      const activationToken = crypto.randomBytes(32).toString('hex');
+      const tokenExpiration = Date.now() + 3600000; // 1 hour
 
-        const newCompany = new Company({
-            name: companyName,
-            address: address,
-            logo: logoUrl,
-            isActive: false,
-            accounts: [{
-                name: accountName,
-                email: email,
-                password: password, // Sử dụng trường ảo password
-                role: 'admin',
-                activationToken: activationToken,
-                tokenExpiration: tokenExpiration
-            }]
-        });
+      const newCompany = new Company({
+          name: companyName,
+          address: address,
+          logo: logoUrl,
+          email: email, // Thêm email cho công ty
+          isActive: false,
+          accounts: [{
+              name: accountName,
+              email: email,
+              password: password, // Sử dụng trường ảo password
+              role: 'admin',
+              activationToken: activationToken,
+              tokenExpiration: tokenExpiration
+          }]
+      });
 
-        await newCompany.save();
+      await newCompany.save();
 
-        const activationLink = `http://localhost:5000/api/company/activate/${activationToken}`;
-        await sendEmail(
-            email,
-            'Xác nhận tài khoản của bạn',
-            accountActivationTemplate({
-                accountName: accountName,
-                companyName: companyName,
-                activationLink: activationLink
-            })
-        );
+      const activationLink = `${process.env.API_URL}/api/company/activate/${activationToken}`;
+      await sendEmail(
+          email,
+          'Xác nhận tài khoản của bạn',
+          accountActivationTemplate({
+              accountName: accountName,
+              companyName: companyName,
+              activationLink: activationLink
+          })
+      );
 
-        res.status(201).json({
-            message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
-        });
-    } catch (error) {
-        const { status, message } = handleError(error);
-        res.status(status).json({ message });
-    }
+      res.status(201).json({
+          message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
+          companyId: newCompany._id // Thêm ID của công ty vào phản hồi
+      });
+  } catch (error) {
+      const { status, message } = handleError(error);
+      res.status(status).json({ message });
+  }
 });
 
 /**
