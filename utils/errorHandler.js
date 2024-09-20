@@ -10,7 +10,12 @@ export const handleError = (error) => {
   }
   
   if (error.code === 11000) {
-    return { status: 400, message: 'Thông tin đã tồn tại trong hệ thống.' };
+    const field = Object.keys(error.keyValue)[0];
+    return { status: 400, message: `${field} đã tồn tại trong hệ thống.` };
+  }
+
+  if (error.code === 'ENOENT') {
+    return { status: 404, message: 'Tệp hoặc thư mục không tồn tại.' };
   }
   
   if (error.name === 'JsonWebTokenError') {
@@ -35,5 +40,6 @@ export const handleError = (error) => {
     return { status: 400, message: 'ID không hợp lệ.' };
   }
   
-  return { status: 500, message: error.message || 'Đã xảy ra lỗi. Vui lòng thử lại sau.' };
+  // Thay đổi thông báo lỗi 500 để không tiết lộ chi tiết
+  return { status: 500, message: 'Đã xảy ra lỗi. Vui lòng thử lại sau.' };
 };

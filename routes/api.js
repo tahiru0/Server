@@ -11,7 +11,7 @@ import sanitizeMiddleware from '../middlewares/sanitizeMiddleware.js';
 import authenticate from '../middlewares/authenticate.js';
 import Admin from '../models/Admin.js';
 import Notification from '../models/Notification.js';
-
+import fakeDataRoutes from './fakeDataRoutes.js';
 // Middleware xác thực cho admin
 const authenticateAdmin = authenticate(Admin, async (decoded) => {
   return await Admin.findAdminById({ id: decoded._id || decoded.id });
@@ -36,5 +36,5 @@ router.use('/school', schoolRoutes);
 router.use('/student', studentRoutes);
 router.use('/mentor', mentorRoutes);
 router.use('/notification', notificationRoutes);
-
+router.use('/fake-data', fakeDataRoutes);
 export default router;

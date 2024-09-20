@@ -7,6 +7,7 @@ const { Schema } = mongoose;
 import LoginHistory from './LoginHistory.js';
 import validator from 'validator';
 import sanitizeHtml from 'sanitize-html';
+import { encodeUrl } from '../utils/urlEncoder.js'; // Import encodeUrl
 
 const sanitizeOptions = {
     allowedTags: [],
@@ -70,7 +71,7 @@ const StudentSchema = new Schema({
         maxlength: [15, 'Số điện thoại không được vượt quá 15 ký tự'],
         validate: {
             validator: function (v) {
-                return /^[0-9]{10,11}$/.test(v);
+                return /^[0-9]{10,12}$/.test(v); // Hỗ trợ số điện thoại từ 10 đến 12 chữ số
             },
             message: props => `${props.value} không phải là số điện thoại hợp lệ!`
         },
@@ -142,7 +143,7 @@ const StudentSchema = new Schema({
     avatar: {
         type: String,
         default: function () {
-            return `/default/${this.name.charAt(0).toUpperCase()}`;
+            return encodeUrl(this.name.charAt(0).toUpperCase()); // Sử dụng encodeUrl để tạo avatar mặc định
         }
     },
     isApproved: { type: Boolean, default: false },

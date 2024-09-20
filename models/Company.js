@@ -285,7 +285,7 @@ CompanySchema.pre('findOneAndUpdate', function(next) {
 // Getter cho trường logo
 CompanySchema.path('logo').get(function (value) {
     if (!value) return null;
-    return value.startsWith('http') ? value : `http://localhost:5000/${value}`;
+    return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
 });
 
 // Đảm bảo rằng các thuộc tính ảo được bao gồm khi chuyển đổi sang JSON

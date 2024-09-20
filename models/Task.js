@@ -60,7 +60,16 @@ const taskSchema = new mongoose.Schema({
   assignedTo: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Student',
-    required: true
+    required: [true, 'Người được giao task không được để trống'],
+    validate: {
+      validator: async function(value) {
+        const project = await mongoose.model('Project').findById(this.project);
+        return project && project.selectedApplicants.some(applicant => 
+          applicant.studentId.toString() === value.toString()
+        );
+      },
+      message: 'Người được giao task phải là một trong những sinh viên đã được chọn cho dự án'
+    }
   },
   isDeleted: { type: Boolean, default: false } // Soft delete
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
@@ -125,21 +134,15 @@ taskSchema.pre('save', async function (next) {
 });
 
 // Thay thế các middleware hiện có
-taskSchema.pre('find', async function(next) {
-    const tasks = await this.find({}).exec();
-    tasks.forEach(task => task.updateStatusIfOverdue());
+taskSchema.pre('find', function(next) {
+    this.find({ isDeleted: false });
     next();
 });
 
-taskSchema.pre('findOne', async function(next) {
-    const task = await this.findOne({}).exec();
-    if (task) {
-        task.updateStatusIfOverdue();
-    }
+taskSchema.pre('findOne', function(next) {
+    this.findOne({ isDeleted: false });
     next();
 });
-
-const Task = mongoose.model('Task', taskSchema);
 
 taskSchema.methods.softDelete = function() {
     this.isDeleted = true;
@@ -181,6 +184,61 @@ taskSchema.pre('findOneAndUpdate', function(next) {
     next();
 });
 
+taskSchema.post('find', function(docs) {
+    if (Array.isArray(docs)) {
+        docs.forEach(doc => doc.updateStatusIfOverdue());
+    }
+});
+
+taskSchema.post('findOne', function(doc) {
+    if (doc) {
+        doc.updateStatusIfOverdue();
+    }
+});
+
+taskSchema.statics.searchTasks = async function (query, filters) {
+  let searchCriteria = {};
+
+  if (query) {
+    searchCriteria.$or = [
+      { name: { $regex: query, $options: 'i' } },
+      { description: { $regex: query, $options: 'i' } }
+    ];
+  }
+
+  if (filters.status) {
+    searchCriteria.status = filters.status;
+  }
+
+  if (filters.deadline) {
+    searchCriteria.deadline = { $lte: new Date(filters.deadline) };
+  }
+
+  if (filters.project) {
+    searchCriteria.project = filters.project;
+  }
+
+  const tasks = await this.find(searchCriteria)
+    .populate('assignedTo', 'name avatar')
+    .select('name description deadline status rating project assignedTo');
+
+  return tasks.map(task => ({
+    _id: task._id,
+    name: task.name,
+    description: task.description,
+    deadline: task.deadline,
+    status: task.status,
+    rating: task.rating,
+    project: task.project,
+    assignedTo: {
+      _id: task.assignedTo._id,
+      name: task.assignedTo.name,
+      avatar: task.assignedTo.avatar
+    }
+  }));
+};
+
+const Task = mongoose.model('Task', taskSchema);
 export default Task;
 
 /**

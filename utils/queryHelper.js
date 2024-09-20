@@ -5,7 +5,7 @@ export const handleQuery = (Model, req, additionalFilters = {}) => {
 
   // Xử lý additionalFilters
   Object.keys(additionalFilters).forEach(key => {
-    if (additionalFilters[key] != null) {
+    if (additionalFilters[key] != null && additionalFilters[key].trim() !== '') {
       if (mongoose.Types.ObjectId.isValid(additionalFilters[key])) {
         query = query.where(key).equals(new mongoose.Types.ObjectId(additionalFilters[key]));
       } else {
@@ -15,9 +15,9 @@ export const handleQuery = (Model, req, additionalFilters = {}) => {
   });
 
   // Xử lý các trường filter đặc biệt
-  const specialFilters = ['sort', 'select', 'page', 'limit', 'sortBy', 'sortOrder', 'search'];
+  const specialFilters = ['sort', 'select', 'page', 'limit', 'order', 'search'];
   Object.keys(req.query).forEach(key => {
-    if (!specialFilters.includes(key) && req.query[key] != null && req.query[key] !== '') {
+    if (!specialFilters.includes(key) && req.query[key] != null && req.query[key].trim() !== '') {
       if (mongoose.Types.ObjectId.isValid(req.query[key])) {
         query = query.where(key).equals(new mongoose.Types.ObjectId(req.query[key]));
       } else {
@@ -27,12 +27,9 @@ export const handleQuery = (Model, req, additionalFilters = {}) => {
   });
 
   // Xử lý sort
-  if (req.query.sortBy && req.query.sortOrder) {
-    const sortOrder = req.query.sortOrder === 'desc' ? -1 : 1;
-    query = query.sort({ [req.query.sortBy]: sortOrder });
-  } else if (req.query.sort) {
-    const sortFields = req.query.sort.split(',').join(' ');
-    query = query.sort(sortFields);
+  if (req.query.sort) {
+    const sortOrder = req.query.order === 'desc' ? -1 : 1;
+    query = query.sort({ [req.query.sort]: sortOrder });
   }
 
   if (req.query.select) {

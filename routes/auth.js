@@ -17,11 +17,15 @@ import School from '../models/School.js';
 const router = express.Router();
 
 const isNewDevice = (user, userModel, ipAddress, userAgent) => {
+  const deviceInfo = parseUserAgent(userAgent);
   return LoginHistory.findOne({
     user: user._id,
     userModel: userModel,
     ipAddress: ipAddress,
-    userAgent: userAgent
+    'deviceInfo.browser': deviceInfo.browser,
+    'deviceInfo.version': deviceInfo.version,
+    'deviceInfo.os': deviceInfo.os,
+    'deviceInfo.deviceType': getDeviceType(userAgent)
   }).then(existingLogin => !existingLogin);
 };
   

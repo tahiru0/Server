@@ -139,10 +139,17 @@ const SchoolSchema = new Schema({
         },
         defaultPassword: { type: String },
         passwordRule: {
-            template: { type: String, default: '' }
+            template: { type: String, default: '${ngaysinh}' }
         }
-    }
+    },
+    logo: { type: String }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
+
+// Getter cho trường logo
+SchoolSchema.path('logo').get(function (value) {
+    if (!value) return null;
+    return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
+});
 
 SchoolAccountSchema.methods.comparePassword = function(candidatePassword) {
     return bcrypt.compare(candidatePassword, this.passwordHash);

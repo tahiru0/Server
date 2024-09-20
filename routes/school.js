@@ -16,9 +16,6 @@ import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// Đảm bảo rằng School.findSchoolAccountById tồn tại và là một hàm
-console.log('School.findSchoolAccountById:', School.findSchoolAccountById);
-
 const authenticateSchoolAdmin = authenticate(School, (decoded) => School.findSchoolAccountById(decoded, 'admin'));
 const authenticateSchoolAccount = authenticate(School, School.findSchoolAccountById);
 
@@ -448,6 +445,42 @@ router.post('/accounts', authenticateSchoolAdmin, async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /api/school/sync-students:
+ *   post:
+ *     summary: Đồng bộ thông tin sinh viên từ API bên ngoài
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               studentId:
+ *                 type: string
+ *                 description: Mã số sinh viên cần đồng bộ
+ *     responses:
+ *       200:
+ *         description: Thông tin sinh viên đã tồn tại
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Student'
+ *       201:
+ *         description: Sinh viên mới được tạo thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Student'
+ *       400:
+ *         description: Cấu hình API không hợp lệ
+ *       500:
+ *         description: Lỗi server khi đồng bộ sinh viên
+ */
 router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
     const { studentId } = req.body;
     const school = await School.findById(req.user.school);
@@ -483,9 +516,52 @@ router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
 
 /**
  * @swagger
- * /api/school/configure-guest-api:
- *   post:
- *     summary: Cấu hình API khách và quy tắc mật khẩu
+ * /api/school/guest-api-config:
+ *   get:
+ *     summary: Lấy cấu hình API khách và quy tắc mật khẩu
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Cấu hình API khách và quy tắc mật khẩu
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 guestApiConfig:
+ *                   type: object
+ *                   description: Cấu hình API khách
+ *                 passwordRule:
+ *                   type: object
+ *                   description: Quy tắc mật khẩu
+ *       404:
+ *         description: Không tìm thấy trường học
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
+    try {
+        const school = await School.findById(req.user.school);
+        if (!school) {
+            return res.status(404).json({ message: 'Không tìm thấy trường học.' });
+        }
+        res.status(200).json({
+            guestApiConfig: school.guestApiConfig || {},
+            passwordRule: school.studentApiConfig?.passwordRule || {}
+        });
+    } catch (error) {
+        const { status, message } = handleError(error);
+        res.status(status).json({ message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/school/guest-api-config:
+ *   put:
+ *     summary: Tạo mới hoặc cập nhật cấu hình API khách và quy tắc mật khẩu
  *     tags: [School]
  *     security:
  *       - schoolAdminBearerAuth: []
@@ -498,57 +574,94 @@ router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
  *             properties:
  *               apiConfig:
  *                 type: object
- *                 properties:
- *                   uri:
- *                     type: string
- *                     description: URL của API khách
- *                   fieldMappings:
- *                     type: object
- *                     properties:
- *                       name:
- *                         type: string
- *                         description: Tên trường dữ liệu cho tên sinh viên
- *                       email:
- *                         type: string
- *                         description: Tên trường dữ liệu cho email sinh viên
- *                       studentId:
- *                         type: string
- *                         description: Tên trường dữ liệu cho mã số sinh viên
- *                       major:
- *                         type: string
- *                         description: Tên trường dữ liệu cho ngành học
- *                       dateOfBirth:
- *                         type: string
- *                         description: Tên trường dữ liệu cho ngày sinh
+ *                 description: Cấu hình API khách
  *               passwordRule:
  *                 type: object
- *                 properties:
- *                   template:
- *                     type: string
- *                     description: Mẫu mật khẩu, ví dụ "School${ngaysinh}2023"
+ *                 description: Quy tắc mật khẩu
  *     responses:
  *       200:
- *         description: Cấu hình API khách và quy tắc mật khẩu thành công
+ *         description: Cấu hình đã được tạo mới hoặc cập nhật thành công
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/School'
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 guestApiConfig:
+ *                   type: object
+ *                 passwordRule:
+ *                   type: object
  *       400:
- *         description: Lỗi dữ liệu đầu vào hoặc API không hoạt động
+ *         description: Lỗi dữ liệu đầu vào
  *       401:
  *         description: Không có quyền truy cập
+ *       404:
+ *         description: Không tìm thấy trường học
  *       500:
  *         description: Lỗi server
  */
-
-router.post('/configure-guest-api', authenticateSchoolAdmin, async (req, res) => {
+router.put('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
     const { apiConfig, passwordRule } = req.body;
+    const schoolId = req.user.school;
 
     try {
-        const school = await School.configureGuestApi(req.user.school, apiConfig, passwordRule);
-        res.status(200).json({ message: 'Cấu hình API khách và quy tắc mật khẩu thành công', school });
+        let school = await School.findById(schoolId);
+        if (!school) {
+            return res.status(404).json({ message: 'Không tìm thấy trường học.' });
+        }
+
+        // Cập nhật hoặc tạo mới cấu hình API khách
+        if (apiConfig) {
+            school.guestApiConfig = Object.entries(apiConfig).reduce((acc, [key, value]) => {
+                if (value !== null && value !== '') {
+                    acc[key] = value;
+                }
+                return acc;
+            }, {});
+        }
+
+        // Cập nhật hoặc tạo mới quy tắc mật khẩu
+        if (!school.studentApiConfig) {
+            school.studentApiConfig = {};
+        }
+        if (passwordRule) {
+            school.studentApiConfig.passwordRule = Object.entries(passwordRule).reduce((acc, [key, value]) => {
+                if (value !== null && value !== '') {
+                    acc[key] = value;
+                }
+                return acc;
+            }, {});
+        }
+
+        // Kiểm tra request để đảm bảo API hoạt động
+        if (school.guestApiConfig && school.guestApiConfig.uri) {
+            try {
+                const response = await axios.get(school.guestApiConfig.uri);
+                if (response.status !== 200) {
+                    throw new Error('API không hoạt động.');
+                }
+            } catch (error) {
+                if (error.response) {
+                    throw new Error('API không hoạt động: ' + error.response.statusText);
+                } else if (error.request) {
+                    throw new Error('Không thể kết nối đến API.');
+                } else {
+                    throw new Error('Lỗi khi kiểm tra API: ' + error.message);
+                }
+            }
+        }
+
+        await school.save();
+
+        res.status(200).json({ 
+            message: 'Cấu hình API khách và quy tắc mật khẩu đã được cập nhật thành công', 
+            guestApiConfig: school.guestApiConfig,
+            passwordRule: school.studentApiConfig.passwordRule
+        });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        const { status, message } = handleError(error);
+        res.status(status).json({ message });
     }
 });
 
@@ -650,10 +763,9 @@ router.get('/test-data/:id', async (req, res) => {
 
     // Dữ liệu giả
     const fakeData = {
-        id,
         name: 'Nguyen Van A',
         email: 'nguyenvana@example.com',
-        studentId: '123456',
+        studentId: id,
         dateOfBirth: '2000-01-01',
         major: 'Computer Science'
     };
@@ -970,6 +1082,99 @@ router.put('/update-password-rule', authenticateSchoolAdmin, async (req, res) =>
         res.status(200).json({ message: 'Cập nhật quy tắc mật khẩu thành công.', passwordRule: school.studentApiConfig.passwordRule });
     } catch (error) {
         res.status(400).json({ message: 'Lỗi khi cập nhật quy tắc mật khẩu.', error: error.message });
+    }
+});
+/**
+ * @swagger
+ * /api/school/check-guest-api-connection:
+ *   post:
+ *     summary: Kiểm tra kết nối API khách và lấy dữ liệu sinh viên
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               uri:
+ *                 type: string
+ *                 description: URI của API khách
+ *               id:
+ *                 type: string
+ *                 description: ID của sinh viên cần kiểm tra
+ *     responses:
+ *       200:
+ *         description: Kết nối API thành công và trả về dữ liệu sinh viên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   description: Dữ liệu sinh viên đã được ánh xạ
+ *       400:
+ *         description: Cấu hình API không hợp lệ hoặc API không hoạt động
+ *       500:
+ *         description: Lỗi server khi kiểm tra kết nối API
+ */
+function trimTrailingSlash(url) {
+    return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+router.post('/check-guest-api-connection', authenticateSchoolAdmin, async (req, res) => {
+    try {
+        const { uri, id } = req.body;
+        if (!uri || !id) {
+            return res.status(400).json({ message: 'URI và ID là bắt buộc.', code: 'MISSING_PARAMS' });
+        }
+
+        const trimmedUri = trimTrailingSlash(uri);
+        const apiUrl = `${trimmedUri}/${id}`;
+
+        try {
+            const response = await axios.get(apiUrl);
+            if (response.status === 200 && response.data) {
+                res.status(200).json({ 
+                    message: 'Kết nối API thành công.', 
+                    data: response.data 
+                });
+            } else {
+                res.status(400).json({ 
+                    message: 'API không trả về dữ liệu hợp lệ.', 
+                    code: 'INVALID_RESPONSE' 
+                });
+            }
+        } catch (error) {
+            if (error.response) {
+                res.status(error.response.status).json({ 
+                    message: `API trả về lỗi: ${error.response.statusText}`, 
+                    code: 'API_ERROR',
+                    details: error.response.data
+                });
+            } else if (error.request) {
+                res.status(500).json({ 
+                    message: 'Không thể kết nối đến API.', 
+                    code: 'CONNECTION_ERROR' 
+                });
+            } else {
+                res.status(500).json({ 
+                    message: 'Lỗi khi kiểm tra API: ' + error.message, 
+                    code: 'UNKNOWN_ERROR' 
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Server error:', error);
+        res.status(500).json({ 
+            message: 'Lỗi server khi kiểm tra kết nối API.', 
+            code: 'SERVER_ERROR',
+            details: error.message 
+        });
     }
 });
 

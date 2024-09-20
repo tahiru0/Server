@@ -29,19 +29,21 @@ router.get('/projects', authenticateMentor, async (req, res, next) => {
     };
 
     const query = handleQuery(Project, req, additionalFilters);
-    console.log('Query:', query.getFilter());
 
     const [projects, total] = await Promise.all([
       query.populate({
         path: 'selectedApplicants.studentId',
         select: '_id name avatar'
-      }).exec(),
-      Project.countDocuments(additionalFilters)
+      })
+      .sort({ updatedAt: -1 }) // Sắp xếp theo thời gian cập nhật mới nhất
+      .exec(),
+      Project.countDocuments(query.getFilter())
     ]);
 
     const formattedProjects = projects.map(project => ({
       id: project._id,
       title: project.title,
+      updatedAt: project.updatedAt, // Thêm trường updatedAt vào kết quả
       members: project.selectedApplicants.map(applicant => ({
         id: applicant.studentId._id,
         name: applicant.studentId.name,
@@ -164,25 +166,28 @@ router.put('/tasks/:taskId/status', authenticateMentor, async (req, res, next) =
   }
 });
 
-// Tìm kiếm dự án
-router.get('/search/projects', authenticateMentor, async (req, res) => {
-  try {
-    const { query, skills, status, startDate, endDate } = req.query;
-    const projects = await Project.searchProjects(query, { skills, status, startDate, endDate });
-    res.json(projects);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
 // Tìm kiếm task
-router.get('/search/tasks', authenticateMentor, async (req, res) => {
+router.get('/search/tasks', authenticateMentor, async (req, res, next) => {
   try {
-    const { query, status, deadline, project } = req.query;
-    const tasks = await Task.searchTasks(query, { status, deadline, project });
+    const { query, status, deadline } = req.query;
+    const { project } = req.body; // Lấy project ID từ body
+
+    // Lấy danh sách các dự án mà mentor phụ trách
+    const mentorProjects = await Project.find({ mentor: req.user._id }).select('_id');
+    const projectIds = mentorProjects.map(p => p._id);
+
+    // Kiểm tra nếu project không thuộc quản lý của mentor
+    if (project && !projectIds.includes(project)) {
+      return res.status(403).json({ message: 'Dự án không thuộc quản lý của bạn' });
+    }
+
+    // Thêm bộ lọc project vào query
+    const filters = { status, deadline, project: project ? project : { $in: projectIds } };
+    const tasks = await Task.searchTasks(query, filters);
+
     res.json(tasks);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error); // Sử dụng next để chuyển lỗi đến errorHandler
   }
 });
 
@@ -235,7 +240,8 @@ router.get('/projects/:projectId', authenticateMentor, async (req, res, next) =>
         avatar: applicant.studentId.avatar && !applicant.studentId.avatar.startsWith('http')
           ? `http://localhost:5000${applicant.studentId.avatar}`
           : applicant.studentId.avatar
-      }))
+      })),
+      updatedAt: project.updatedAt // Thêm thời gian cập nhật
     };
 
     res.json(formattedProject);

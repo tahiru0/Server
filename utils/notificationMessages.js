@@ -10,6 +10,10 @@ const notificationMessages = {
       applicationExpired: (projectTitle) => `Đơn ứng tuyển của bạn cho dự án "${projectTitle}" đã hết hạn.`,
       applicationRejected: (projectTitle) => `Đơn ứng tuyển của bạn cho dự án "${projectTitle}" đã bị từ chối.`,
       applicationRejectedAfterClose: (projectTitle) => `Dự án "${projectTitle}" đã kết thúc tuyển dụng. Rất tiếc, đơn ứng tuyển của bạn không được chọn.`,
+      studentRemoved: (projectTitle) => `Bạn đã bị loại khỏi dự án "${projectTitle}".`,
+      studentRemovedForOtherReason: (projectTitle, reason) => `Bạn đã bị loại khỏi dự án "${projectTitle}" vì lý do: ${reason}.`,
+      mentorReplaced: (projectTitle) => `Bạn đã được thay thế bởi mentor khác trong dự án "${projectTitle}"`,
+      mentorAssigned: (projectTitle) => `Bạn đã được chỉ định làm mentor cho dự án "${projectTitle}"`,
     },
     // Thêm các loại thông báo khác ở đây
   };

@@ -81,7 +81,7 @@ const projectSchema = new mongoose.Schema({
     min: [1, 'Số lượng ứng viên tối đa phải lớn hơn 0'],
     max: [100, 'Số lượng ứng viên tối đa không được vượt quá 100'],
     validate: {
-      validator: function(v) {
+      validator: function (v) {
         return this.isRecruiting ? v > 0 : true;
       },
       message: 'Số lượng ứng viên tối đa không được để trống khi đang tuyển dụng'
@@ -89,11 +89,11 @@ const projectSchema = new mongoose.Schema({
   },
   applicationStart: {
     type: Date,
-    default: function() {
+    default: function () {
       return this.startDate;
     },
     validate: {
-      validator: function(v) {
+      validator: function (v) {
         return this.isRecruiting ? v != null : true;
       },
       message: 'Thời gian bắt đầu tuyển dụng không được để trống khi đang tuyển dụng'
@@ -103,13 +103,13 @@ const projectSchema = new mongoose.Schema({
     type: Date,
     validate: [
       {
-        validator: function(v) {
+        validator: function (v) {
           return this.isRecruiting ? v != null : true;
         },
         message: 'Thời gian kết thúc tuyển dụng không được để trống khi đang tuyển dụng'
       },
       {
-        validator: function(v) {
+        validator: function (v) {
           if (!this.applicationStart || !v) return true;
           const maxEndDate = new Date(this.applicationStart);
           maxEndDate.setMonth(maxEndDate.getMonth() + 2);
@@ -118,7 +118,7 @@ const projectSchema = new mongoose.Schema({
         message: 'Thời gian mở ứng tuyển không được vượt quá 2 tháng'
       },
       {
-        validator: function(v) {
+        validator: function (v) {
           const today = new Date();
           today.setHours(0, 0, 0, 0); // Đặt thời gian về đầu ngày
           return v > today;
@@ -156,7 +156,7 @@ const projectSchema = new mongoose.Schema({
   endDate: {
     type: Date,
     validate: {
-      validator: function(v) {
+      validator: function (v) {
         return v > this.startDate;
       },
       message: 'Ngày kết thúc phải sau ngày bắt đầu'
@@ -183,25 +183,19 @@ const projectSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Major'
   }],
-  skillRequirements: {
-    type: String,
-    trim: true,
-    maxlength: [500, 'Yêu cầu kỹ năng không được vượt quá 500 ký tự'],
-    set: (value) => sanitizeHtml(value, sanitizeOptions),
-  },
   pinnedProject: {
     type: Boolean,
     default: false
   }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
-projectSchema.methods.pinProject = async function() {
+projectSchema.methods.pinProject = async function () {
   this.pinnedProject = true;
   await this.save();
 };
 
 // Middleware để kiểm tra trạng thái trước khi thực hiện các hành động
-projectSchema.pre('save', function(next) {
+projectSchema.pre('save', function (next) {
   if (this.status === 'Closed' && this.isModified('status')) {
     return next();
   }
@@ -211,7 +205,7 @@ projectSchema.pre('save', function(next) {
   next();
 });
 
-projectSchema.pre('updateOne', function(next) {
+projectSchema.pre('updateOne', function (next) {
   const update = this.getUpdate();
   if (update.$set && update.$set.status === 'Closed') {
     return next();
@@ -225,7 +219,7 @@ projectSchema.pre('updateOne', function(next) {
   });
 });
 
-projectSchema.pre('findOneAndUpdate', function(next) {
+projectSchema.pre('findOneAndUpdate', function (next) {
   const update = this.getUpdate();
   if (update.$set && update.$set.status === 'Closed') {
     return next();
@@ -240,13 +234,13 @@ projectSchema.pre('findOneAndUpdate', function(next) {
 });
 
 // Cập nhật các phương thức để kiểm tra trạng thái
-projectSchema.methods.checkAndRemoveApplicants = async function() {
+projectSchema.methods.checkAndRemoveApplicants = async function () {
   if (this.status === 'Closed') {
     throw new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này');
   }
   const sevenDaysAgo = new Date(new Date().setDate(new Date().getDate() - 7));
   const removedApplicants = this.applicants.filter(applicant => applicant.appliedDate <= sevenDaysAgo);
-  
+
   // Tạo thông báo cho các ứng viên bị loại do hết hạn
   for (const applicant of removedApplicants) {
     await Notification.insert({
@@ -262,7 +256,7 @@ projectSchema.methods.checkAndRemoveApplicants = async function() {
   await this.save();
 };
 
-projectSchema.methods.addApplicant = async function(applicantId) {
+projectSchema.methods.addApplicant = async function (applicantId) {
   if (this.status === 'Closed') {
     throw new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này');
   }
@@ -297,13 +291,13 @@ projectSchema.methods.addApplicant = async function(applicantId) {
   });
 };
 
-projectSchema.pre('save', async function(next) {
+projectSchema.pre('save', async function (next) {
   const project = this;
 
   // Auto close recruiting if applicationEnd is passed
   if (project.isRecruiting && project.applicationEnd < new Date()) {
     project.isRecruiting = false;
-    
+
     // Di chuyển applicants vào lịch sử và tạo thông báo
     const now = new Date();
     const newHistory = project.applicants.map(applicant => ({
@@ -311,7 +305,7 @@ projectSchema.pre('save', async function(next) {
       appliedDate: applicant.appliedDate,
       recruitmentClosedAt: now
     }));
-    
+
     // Tạo thông báo cho các ứng viên không được chọn
     for (const applicant of project.applicants) {
       if (!project.selectedApplicants.some(selected => selected.studentId.toString() === applicant.applicantId.toString())) {
@@ -324,7 +318,7 @@ projectSchema.pre('save', async function(next) {
         });
       }
     }
-    
+
     project.applicantHistory.push(...newHistory);
     project.applicants = []; // Xóa tất cả applicants sau khi đã lưu vào lịch sử
   }
@@ -337,7 +331,7 @@ projectSchema.pre('save', async function(next) {
       appliedDate: applicant.appliedDate,
       recruitmentClosedAt: now
     }));
-    
+
     project.applicantHistory.push(...newHistory);
     project.applicants = []; // Xóa tất cả applicants sau khi đã lưu vào lịch sử
   }
@@ -358,7 +352,7 @@ projectSchema.pre('save', async function(next) {
   next();
 });
 
-projectSchema.pre('save', async function(next) {
+projectSchema.pre('save', async function (next) {
   if (this.isModified('isRecruiting')) {
     const notificationContent = this.isRecruiting
       ? notificationMessages.project.openRecruitment(this.title)
@@ -377,7 +371,9 @@ projectSchema.pre('save', async function(next) {
 });
 
 // Save applicant's appliedDate into selectedApplicants when they are accepted
-projectSchema.methods.acceptApplicant = async function(applicantId) {
+projectSchema.methods.acceptApplicant = async function (applicantId) {
+  await this.checkDuplicateSelectedApplicants(applicantId); // Kiểm tra trùng lặp
+
   const applicant = this.applicants.find(a => a.applicantId.toString() === applicantId.toString());
   if (!applicant) {
     throw new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
@@ -419,7 +415,18 @@ projectSchema.methods.acceptApplicant = async function(applicantId) {
   });
 };
 
-projectSchema.methods.removeApplicant = async function(applicantId, reason = 'rejected') {
+projectSchema.methods.checkDuplicateSelectedApplicants = async function(applicantId) {
+  const existingProject = await mongoose.model('Project').findOne({
+    'selectedApplicants.studentId': applicantId,
+    _id: { $ne: this._id }
+  });
+
+  if (existingProject) {
+    throw new Error('Sinh viên đã được chọn vào một dự án khác');
+  }
+};
+
+projectSchema.methods.removeApplicant = async function (applicantId, reason = 'rejected') {
   const applicantIndex = this.applicants.findIndex(a => a.applicantId.toString() === applicantId.toString());
   if (applicantIndex === -1) {
     throw new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
@@ -446,16 +453,16 @@ projectSchema.methods.removeApplicant = async function(applicantId, reason = 're
 };
 
 // Thêm phương thức để kiểm tra xem dự án có thể nhận ứng viên không
-projectSchema.methods.canAcceptApplicants = function() {
+projectSchema.methods.canAcceptApplicants = function () {
   const now = new Date();
   return this.isRecruiting &&
-         this.currentApplicants < this.maxApplicants &&
-         now >= this.applicationStart &&
-         now <= this.applicationEnd;
+    this.currentApplicants < this.maxApplicants &&
+    now >= this.applicationStart &&
+    now <= this.applicationEnd;
 };
 
 // Thêm phương thức để tự động đóng tuyển dụng nếu đủ người hoặc hết thời gian
-projectSchema.methods.checkRecruitmentStatus = function() {
+projectSchema.methods.checkRecruitmentStatus = function () {
   const now = new Date();
   if (this.isRecruiting && (this.currentApplicants >= this.maxApplicants || now > this.applicationEnd)) {
     this.isRecruiting = false;
@@ -466,7 +473,7 @@ projectSchema.methods.checkRecruitmentStatus = function() {
       appliedDate: applicant.appliedDate,
       recruitmentClosedAt: now
     }));
-    
+
     this.applicantHistory.push(...newHistory);
     this.applicants = []; // Xóa tất cả applicants sau khi đã lưu vào lịch sử
 
@@ -475,32 +482,32 @@ projectSchema.methods.checkRecruitmentStatus = function() {
   return false; // Trạng thái không thay đổi
 };
 
-projectSchema.statics.searchProjects = async function(query, filters) {
+projectSchema.statics.searchProjects = async function (query, filters) {
   let searchCriteria = { company: filters.company }; // Thêm company vào bộ lọc
-  
+
   if (query) {
     searchCriteria.$or = [
       { title: { $regex: query, $options: 'i' } },
       { description: { $regex: query, $options: 'i' } }
     ];
   }
-  
+
   if (filters.skills) {
     searchCriteria.requiredSkills = { $in: filters.skills };
   }
-  
+
   if (filters.status) {
     searchCriteria.status = filters.status;
   }
-  
+
   if (filters.startDate) {
     searchCriteria.startDate = { $gte: new Date(filters.startDate) };
   }
-  
+
   if (filters.endDate) {
     searchCriteria.endDate = { $lte: new Date(filters.endDate) };
   }
-  
+
   return this.find(searchCriteria)
     .select('_id title mentor status isRecruiting applicants selectedApplicants maxApplicants pinnedProject')
     .populate({
@@ -533,18 +540,18 @@ projectSchema.statics.searchProjects = async function(query, filters) {
 };
 
 // Thêm middleware để xử lý cập nhật
-projectSchema.pre('findOneAndUpdate', function(next) {
-    const update = this.getUpdate();
-    if (update.$set) {
-        Object.keys(update.$set).forEach(key => {
-            if (update.$set[key] === null || update.$set[key] === '') {
-                delete update.$set[key];
-            }
-        });
-    }
-    next();
+projectSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate();
+  if (update.$set) {
+    Object.keys(update.$set).forEach(key => {
+      if (update.$set[key] === null || update.$set[key] === '') {
+        delete update.$set[key];
+      }
+    });
+  }
+  next();
 });
-projectSchema.methods.changeMentor = async function(newMentorId, oldMentorId, companyId) {
+projectSchema.methods.changeMentor = async function (newMentorId, oldMentorId, companyId) {
   const Company = mongoose.model('Company');
   const company = await Company.findById(companyId);
 
@@ -567,24 +574,58 @@ projectSchema.methods.changeMentor = async function(newMentorId, oldMentorId, co
   await this.save();
 
   // Tạo thông báo cho mentor mới
-await Notification.insert({
-  recipient: newMentorId,
-  recipientModel: 'CompanyAccount',
-  recipientRole: 'mentor',
-  type: 'project',
-  content: `Bạn đã được chỉ định làm mentor cho dự án "${this.title}"`,
-  relatedId: this._id
-});
+  await Notification.insert({
+    recipient: newMentorId,
+    recipientModel: 'CompanyAccount',
+    recipientRole: 'mentor',
+    type: 'project',
+    content: notificationMessages.project.mentorAssigned(this.title),
+    relatedId: this._id
+  });
 
-// Tạo thông báo cho mentor cũ
-await Notification.insert({
-  recipient: oldMentorId,
-  recipientModel: 'CompanyAccount',
-  recipientRole: 'mentor',
-  type: 'project',
-  content: `Bạn đã được thay thế bởi mentor khác trong dự án "${this.title}"`,
-  relatedId: this._id
-});
+  // Tạo thông báo cho mentor cũ
+  await Notification.insert({
+    recipient: oldMentorId,
+    recipientModel: 'CompanyAccount',
+    recipientRole: 'mentor',
+    type: 'project',
+    content: notificationMessages.project.mentorReplaced(this.title),
+    relatedId: this._id
+  });
+};
+
+projectSchema.methods.removeStudentFromProject = async function (studentId, reason = 'removed') {
+  const selectedApplicantIndex = this.selectedApplicants.findIndex(a => a.studentId.toString() === studentId.toString());
+  if (selectedApplicantIndex === -1) {
+    throw new Error('Sinh viên không tồn tại trong danh sách được chọn');
+  }
+
+  // Xóa sinh viên khỏi danh sách selectedApplicants
+  this.selectedApplicants.splice(selectedApplicantIndex, 1);
+  await this.save();
+
+  // Cập nhật currentProject của sinh viên
+  const student = await mongoose.model('Student').findById(studentId);
+  if (student) {
+    student.currentProject = null;
+    await student.save();
+  }
+
+  // Tạo thông báo cho sinh viên
+  let notificationContent;
+  if (reason === 'removed') {
+    notificationContent = notificationMessages.project.studentRemoved(this.title);
+  } else {
+    notificationContent = notificationMessages.project.studentRemovedForOtherReason(this.title, reason);
+  }
+
+  await Notification.insert({
+    recipient: studentId,
+    recipientModel: 'Student',
+    type: 'project',
+    content: notificationContent,
+    relatedId: this._id
+  });
 };
 
 const Project = mongoose.model('Project', projectSchema);
