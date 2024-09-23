@@ -135,7 +135,8 @@ const SchoolSchema = new Schema({
             studentId: { type: String },
             major: { type: String },
             email: { type: String },
-            dateOfBirth: { type: String }
+            dateOfBirth: { type: String },
+            name: { type: String }
         },
         defaultPassword: { type: String },
         passwordRule: {
@@ -331,7 +332,6 @@ SchoolSchema.statics.findSchoolAccountById = async function(decoded) {
         return null;
     }
     const account = school.accounts.id(decoded._id);
-    console.log('findSchoolAccountById - account:', account);
     return account ? {
         ...account.toObject(),
         school: school._id,
@@ -385,7 +385,7 @@ SchoolSchema.statics.configureGuestApi = async function(schoolId, apiConfig, pas
     }
 
     // Cập nhật cấu hình API khách
-    school.guestApiConfig = apiConfig;
+    school.studentApiConfig = apiConfig;
 
     // Cập nhật quy tắc mật khẩu
     school.studentApiConfig.passwordRule = passwordRule;

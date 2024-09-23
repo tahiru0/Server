@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Notification from './Notification.js';
 import sanitizeHtml from 'sanitize-html';
+import notificationMessages from '../utils/notificationMessages.js';
 
 const sanitizeOptions = {
   allowedTags: [],
@@ -44,13 +45,18 @@ const taskSchema = new mongoose.Schema({
   rating: {
     type: Number,
     min: [1, 'Đánh giá tối thiểu là 1'],
-    max: [5, 'Đánh giá tối đa là 5'],
+    max: [10, 'Đánh giá tối đa là 10'],
     validate: {
       validator: function(v) {
-        return this.status === 'Completed' ? v != null : true;
+        return this.status === 'Completed' && this.deadline < new Date() ? v != null : true;
       },
-      message: 'Đánh giá không được để trống khi công việc đã hoàn thành'
+      message: 'Đánh giá không được để trống khi công việc đã hoàn thành và qua hạn chót'
     }
+  },
+  comment: {
+    type: String,
+    maxlength: [1000, 'Bình luận không được vượt quá 1000 ký tự'],
+    set: (value) => sanitizeHtml(value, sanitizeOptions),
   },
   project: {
     type: mongoose.Schema.Types.ObjectId,
@@ -71,7 +77,10 @@ const taskSchema = new mongoose.Schema({
       message: 'Người được giao task phải là một trong những sinh viên đã được chọn cho dự án'
     }
   },
-  isDeleted: { type: Boolean, default: false } // Soft delete
+  isDeleted: { type: Boolean, default: false }, // Soft delete
+  ratedAt: {
+    type: Date
+  }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 // Method to check and update task status if overdue
@@ -84,32 +93,34 @@ taskSchema.methods.updateStatusIfOverdue = function () {
 
 // Middleware to check task status before saving
 taskSchema.pre('save', async function (next) {
+  const wasOverdue = this.status === 'Overdue';
   this.updateStatusIfOverdue();
   
   if (this.isNew) {
     // Tạo thông báo cho task mới
-    await Notification.create({
-      recipient: this.assignedTo,
-      recipientModel: 'Student',
-      type: 'task',
-      content: `Bạn đã được giao một task mới: ${this.name}`,
-      relatedId: this._id
-    });
-
-    // Tạo thông báo cho mentor
     const project = await mongoose.model('Project').findById(this.project);
     if (project) {
-      await Notification.create({
+      await Notification.insert({
+        recipient: this.assignedTo,
+        recipientModel: 'Student',
+        type: 'task',
+        content: notificationMessages.task.assigned(this.name, project.title),
+        relatedId: this._id
+      });
+
+      // Tạo thông báo cho mentor
+      await Notification.insert({
         recipient: project.mentor,
         recipientModel: 'CompanyAccount',
+        recipientRole: 'mentor',
         type: 'task',
-        content: `Một task mới đã được tạo cho dự án "${project.title}": ${this.name}`,
+        content: notificationMessages.task.newTaskForMentor(this.name, project.title),
         relatedId: this._id
       });
     }
   } else if (this.isModified('status') || this.isModified('deadline')) {
     // Tạo thông báo khi cập nhật trạng thái hoặc deadline
-    await Notification.create({
+    await Notification.insert({
       recipient: this.assignedTo,
       recipientModel: 'Student',
       type: 'task',
@@ -120,80 +131,91 @@ taskSchema.pre('save', async function (next) {
     // Tạo thông báo cho mentor
     const project = await mongoose.model('Project').findById(this.project);
     if (project) {
-      await Notification.create({
+      await Notification.insert({
         recipient: project.mentor,
         recipientModel: 'CompanyAccount',
+        recipientRole: 'mentor',
         type: 'task',
         content: `Task "${this.name}" trong dự án "${project.title}" đã được cập nhật`,
         relatedId: this._id
       });
     }
+
+    // Tạo thông báo khi task quá hạn
+    if (!wasOverdue && this.status === 'Overdue') {
+      await Notification.insert({
+        recipient: this.assignedTo,
+        recipientModel: 'Student',
+        type: 'task',
+        content: notificationMessages.task.overdue(this.name),
+        relatedId: this._id
+      });
+    }
+  }
+  
+  if (this.isModified('rating') && this.status === 'Completed' && this.deadline < new Date()) {
+    await Notification.insert({
+      recipient: this.assignedTo,
+      recipientModel: 'Student',
+      type: 'task',
+      content: notificationMessages.task.rated(this.name, this.rating),
+      relatedId: this._id
+    });
+  }
+
+  if (this.isModified('rating') && !this.ratedAt) {
+    this.ratedAt = new Date();
   }
   
   next();
 });
 
-// Thay thế các middleware hiện có
 taskSchema.pre('find', function(next) {
-    this.find({ isDeleted: false });
-    next();
+  this.find({ isDeleted: false });
+  next();
 });
 
 taskSchema.pre('findOne', function(next) {
-    this.findOne({ isDeleted: false });
-    next();
-});
-
-taskSchema.methods.softDelete = function() {
-    this.isDeleted = true;
-    return this.save();
-};
-
-taskSchema.methods.restore = function() {
-    this.isDeleted = false;
-    return this.save();
-};
-
-taskSchema.statics.findByIdAndNotDeleted = async function(id) {
-  return this.findOne({ _id: id, isDeleted: false }).exec();
-};
-
-taskSchema.statics.findAllActiveByProject = async function(projectId) {
-  return this.find({ project: projectId, isDeleted: false }).exec();
-};
-
-taskSchema.statics.findAllActiveByStudent = async function(studentId) {
-  return this.find({ assignedTo: studentId, isDeleted: false }).exec();
-};
-
-taskSchema.statics.findOverdueTasks = async function() {
-  const now = new Date();
-  return this.find({ deadline: { $lt: now }, status: { $ne: 'Completed' }, isDeleted: false }).exec();
-};
-
-// Thêm middleware để xử lý cập nhật
-taskSchema.pre('findOneAndUpdate', function(next) {
-    const update = this.getUpdate();
-    if (update.$set) {
-        Object.keys(update.$set).forEach(key => {
-            if (update.$set[key] === null || update.$set[key] === '') {
-                delete update.$set[key];
-            }
-        });
-    }
-    next();
+  this.findOne({ isDeleted: false });
+  next();
 });
 
 taskSchema.post('find', function(docs) {
-    if (Array.isArray(docs)) {
-        docs.forEach(doc => doc.updateStatusIfOverdue());
-    }
+  if (Array.isArray(docs)) {
+    docs.forEach(doc => doc.updateStatusIfOverdue());
+  }
 });
 
 taskSchema.post('findOne', function(doc) {
-    if (doc) {
-        doc.updateStatusIfOverdue();
+  if (doc) {
+    doc.updateStatusIfOverdue();
+  }
+});
+
+taskSchema.pre('findOneAndUpdate', async function(next) {
+  const update = this.getUpdate();
+  if (update.$set) {
+    Object.keys(update.$set).forEach(key => {
+      if (update.$set[key] === null || update.$set[key] === '') {
+        delete update.$set[key];
+      }
+    });
+  }
+
+  const task = await this.model.findOne(this.getQuery());
+  if (task) {
+    if (task.ratedAt && (update.$set.rating || update.$set.comment)) {
+      throw new Error('Không thể sửa đánh giá sau khi đã đánh giá');
     }
+    task.updateStatusIfOverdue();
+    await task.save();
+  }
+
+  if (update.$set.rating || update.$set.comment) {
+    update.$set.ratedAt = new Date();
+  }
+
+  next();
 });
 
 taskSchema.statics.searchTasks = async function (query, filters) {

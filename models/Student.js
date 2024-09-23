@@ -19,10 +19,10 @@ const sanitizeOptions = {
 const decodeHtmlEntities = (str) => {
     if (!str) return '';
     return str.replace(/&amp;/g, '&')
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>')
-              .replace(/&quot;/g, '"')
-              .replace(/&#039;/g, "'");
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'");
 };
 
 const StudentSchema = new Schema({
@@ -116,7 +116,7 @@ const StudentSchema = new Schema({
         school: {
             type: String,
             maxlength: [100, 'Tên trường không được vượt quá 100 ký tự'],
-           set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
+            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
             get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         degree: {
@@ -146,28 +146,52 @@ const StudentSchema = new Schema({
             return encodeUrl(this.name.charAt(0).toUpperCase()); // Sử dụng encodeUrl để tạo avatar mặc định
         }
     },
+    appliedProjects: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Project'
+    }],
     isApproved: { type: Boolean, default: false },
     approvedBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
     approvedAt: { type: Date },
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 StudentSchema.virtual('password')
-    .get(function() {
+    .get(function () {
         return this._password;
     })
-    .set(function(value) {
+    .set(function (value) {
         this._password = value;
         if (value) {
             this.passwordHash = this.constructor.hashPassword(value);
         }
     });
 
-StudentSchema.statics.hashPassword = function(password) {
+StudentSchema.statics.hashPassword = function (password) {
     const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 10;
     return bcrypt.hashSync(password, saltRounds);
 };
 
-StudentSchema.pre('save', async function(next) {
+StudentSchema.methods.updateStudentInfo = async function (updateData) {
+    const allowedFields = ['name', 'email', 'studentId', 'school', 'major', 'skills', 'experience', 'education', 'cv', 'avatar'];
+    for (const key in updateData) {
+      if (allowedFields.includes(key)) {
+        this[key] = updateData[key];
+      }
+    }
+    await this.save();
+    return this;
+  };
+
+StudentSchema.statics.getImportantStudentInfo = async function (filters = {}) {
+    const searchCriteria = { ...filters, isDeleted: false };
+
+    return this.find(searchCriteria)
+        .select('_id name avatar school isApproved studentId major')
+        .populate('school', 'name') // Populate tên trường
+        .populate('major', 'name'); // Populate tên ngành học
+};
+
+StudentSchema.pre('save', async function (next) {
     if (this.isNew && !this._password) {
         try {
             const defaultPassword = await this.generateDefaultPassword();
@@ -205,7 +229,7 @@ StudentSchema.pre('save', async function (next) {
 
 // Unique index để đảm bảo mã số sinh viên là duy nhất trong mỗi trường
 StudentSchema.index({ school: 1, studentId: 1, isDeleted: 1 }, { unique: true });
-StudentSchema.statics.checkStudentIdExists = async function(schoolId, studentId, currentStudentId) {
+StudentSchema.statics.checkStudentIdExists = async function (schoolId, studentId, currentStudentId) {
     const query = {
         school: schoolId,
         studentId: studentId,
@@ -266,7 +290,7 @@ StudentSchema.statics.login = async function (schoolId, studentId, password, req
 };
 
 // Thêm các ràng buộc và xác thực cho các trường
-StudentSchema.path('passwordHash').validate(function() {
+StudentSchema.path('passwordHash').validate(function () {
     if (this._password) {
         if (this._password.length < 6) {
             this.invalidate('password', 'Mật khẩu phải có ít nhất 6 ký tự');
@@ -285,7 +309,7 @@ StudentSchema.path('email').validate(function (value) {
     return emailRegex.test(value);
 }, 'Email không hợp lệ');
 
-StudentSchema.path('studentId').validate(async function(value) {
+StudentSchema.path('studentId').validate(async function (value) {
     if (this.isNew || (this.isModified('studentId') && this.studentId !== value)) {
         const exists = await this.constructor.checkStudentIdExists(this.school, value);
         if (exists) {
@@ -326,7 +350,10 @@ StudentSchema.methods.generateDefaultPassword = async function () {
 };
 
 // Thêm phương thức để so sánh mật khẩu
-StudentSchema.methods.comparePassword = function(candidatePassword) {
+StudentSchema.methods.comparePassword = function (candidatePassword) {
+    if (!this.passwordHash) {
+        throw new Error('Không có mật khẩu để so sánh.');
+    }
     return bcrypt.compareSync(candidatePassword, this.passwordHash);
 };
 // StudentSchema.methods = {
@@ -348,10 +375,14 @@ StudentSchema.statics.findBySchoolAndStudentId = async function (schoolId, stude
     return this.findOne({
         school: schoolId,
         studentId: studentId,
-        isDeleted: false
+        isDeleted: false,
     }).exec();
 };
 
+StudentSchema.statics.findStudentById = async function (id) {
+    const Student = mongoose.model('Student'); // Đảm bảo rằng bạn đang sử dụng mô hình Student
+    return Student.findOne({ _id: id, isDeleted: false });
+};
 
 // Thêm hàm để lấy danh sách dự án phù hợp
 StudentSchema.methods.getMatchingProjects = async function () {
@@ -373,6 +404,20 @@ StudentSchema.methods.getMatchingProjects = async function () {
         );
         return skillMatch || majorMatch;
     });
+};
+StudentSchema.methods.getAppliedAndAcceptedProjects = async function () {
+    const appliedProjects = await mongoose.model('Project').find({
+        'applicants.applicantId': this._id
+    }).select('_id title');
+
+    const acceptedProjects = await mongoose.model('Project').find({
+        'selectedApplicants.studentId': this._id
+    }).select('_id title');
+
+    return {
+        appliedProjects,
+        acceptedProjects
+    };
 };
 
 StudentSchema.statics.searchStudents = async function (query, filters) {
@@ -415,11 +460,98 @@ StudentSchema.path('avatar').get(function (value) {
     return value.startsWith('http') ? value : `http://localhost:5000${value}`;
 });
 
+StudentSchema.path('cv').get(function (value) {
+    if (!value) return null;
+    return value.startsWith('http') ? value : `http://localhost:5000${value}`;
+});
+// Thêm phương thức mới để xóa ứng tuyển dự án
+StudentSchema.methods.removeProjectApplication = async function (projectId) {
+    try {
+        // Xóa dự án khỏi danh sách appliedProjects của sinh viên
+        this.appliedProjects = this.appliedProjects.filter(id => id.toString() !== projectId.toString());
+        await this.save();
+
+        // Xóa sinh viên khỏi danh sách applicants của dự án
+        const Project = mongoose.model('Project');
+        const project = await Project.findById(projectId);
+        if (project) {
+            project.applicants = project.applicants.filter(applicant => applicant.applicantId.toString() !== this._id.toString());
+            project.currentApplicants = project.applicants.length;
+            await project.save();
+        }
+
+        // Tạo thông báo cho sinh viên
+        const Notification = mongoose.model('Notification');
+        await Notification.create({
+            recipient: this._id,
+            recipientModel: 'Student',
+            type: 'project',
+            content: `Bạn đã hủy ứng tuyển dự án "${project.title}"`,
+            relatedId: projectId
+        });
+
+        return true;
+    } catch (error) {
+        console.error('Lỗi khi xóa ứng tuyển dự án:', error);
+        throw new Error('Không thể xóa ứng tuyển dự án');
+    }
+};
+StudentSchema.methods.getCurrentProjectDetails = async function () {
+    if (!this.currentProject) {
+        return null;
+    }
+
+    const project = await mongoose.model('Project').findById(this.currentProject)
+        .populate('company', 'name logo')
+        .populate('relatedMajors', 'name')
+        .populate('requiredSkills', 'name')
+        .lean();
+
+    if (!project) {
+        return null;
+    }
+
+    return {
+        _id: project._id,
+        title: project.title,
+        description: project.description,
+        companyName: project.company.name,
+        companyLogo: project.company.logo ? `http://localhost:5000${project.company.logo}` : null,
+        status: project.status,
+        isRecruiting: project.isRecruiting,
+        maxApplicants: project.maxApplicants,
+        applicationStart: project.applicationStart,
+        applicationEnd: project.applicationEnd,
+        objectives: project.objectives,
+        startDate: project.startDate,
+        endDate: project.endDate,
+        projectStatus: project.projectStatus,
+        relatedMajors: project.relatedMajors.map(major => major.name),
+        requiredSkills: project.requiredSkills.map(skill => skill.name),
+        skillRequirements: project.skillRequirements,
+        hasApplied: project.applicants.some(applicant => applicant.applicantId.toString() === this._id.toString()),
+        isSelected: project.selectedApplicants.some(selected => selected.studentId.toString() === this._id.toString())
+    };
+};
+StudentSchema.methods.getAssignedTasks = async function () {
+    return await mongoose.model('Task').find({ assignedTo: this._id }).populate('project', 'title');
+};
+
+StudentSchema.methods.updateTaskStatus = async function (taskId, status) {
+    const task = await mongoose.model('Task').findOne({ _id: taskId, assignedTo: this._id });
+    if (!task) {
+        throw new Error('Không tìm thấy task hoặc task không được giao cho sinh viên này');
+    }
+    task.status = status;
+    await task.save();
+    return task;
+};
+
 // Đảm bảo rằng các getter được bao gồm khi chuyển đổi sang JSON
 StudentSchema.set('toJSON', { getters: true });
 StudentSchema.set('toObject', { getters: true });
 
-export default mongoose.models.Student || mongoose.model('Student', StudentSchema);
+export default mongoose.model('Student', StudentSchema);
 
 /**
  * @swagger

@@ -12,6 +12,7 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Decoded token:', decoded);
 
     let user;
     if (decoded.model === 'Company' || decoded.model === 'School') {
@@ -43,7 +44,7 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
     } else if (decoded.model === 'School') {
       req.userModel = 'SchoolAccount';
       req.schoolId = user.parentId;
-    } else if (decoded.role === 'student') {
+    } else if (decoded.model === 'Student') {
       req.userModel = 'Student';
     } else if (decoded.role === 'admin' && decoded.model === 'Admin') {
       req.userModel = 'Admin';

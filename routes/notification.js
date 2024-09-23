@@ -45,6 +45,11 @@ router.get('/', authenticateUser, async (req, res) => {
       query.recipientRole = req.user.role.name;
     }
 
+    // Xóa điều kiện parentId cho Student
+    if (recipientModel === 'Student') {
+      delete query.parentId;
+    }
+
     console.log('Query:', query);
     console.log('User:', req.user);
     console.log('UserModel:', req.userModel);
@@ -88,7 +93,18 @@ router.patch('/:id/read', authenticateUser, async (req, res) => {
 
     await notification.markAsRead();
 
-    res.json({ message: 'Thông báo đã được đánh dấu là đã đọc' });
+    // Tính toán số lượng thông báo chưa đọc
+    const unreadCount = await Notification.countDocuments({
+      recipient: req.user._id,
+      recipientModel: req.userModel,
+      isRead: false,
+      isDeleted: false
+    });
+
+    res.json({ 
+      message: 'Thông báo đã được đánh dấu là đã đọc',
+      unreadCount: unreadCount > 99 ? '99+' : unreadCount.toString()
+    });
   } catch (error) {
     console.error('Error in PATCH /notifications/:id/read:', error);
     res.status(500).json({ message: error.message });
@@ -170,7 +186,9 @@ router.get('/unread-count', authenticateUser, async (req, res) => {
 
     console.log('Unread count result:', count);
 
-    res.json({ unreadCount: count });
+    const unreadCount = count > 99 ? '99+' : count.toString();
+
+    res.json({ unreadCount: unreadCount });
   } catch (error) {
     console.error('Error in GET /notifications/unread-count:', error);
     res.status(500).json({ message: error.message });
@@ -199,6 +217,8 @@ router.patch('/:id/restore', authenticateUser, async (req, res) => {
 });
 
 router.get('/stream', authenticateUser, async (req, res) => {
+  console.log('User accessing stream:', req.user);
+  console.log('UserModel:', req.userModel);
   notificationStream.subscribe(req, res);
 });
 

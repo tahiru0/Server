@@ -34,9 +34,13 @@ export const sendEmail = async (to, subject, htmlContent, type = 'sent') => {
         // Lưu email vào database với trường type
         const email = new Email({ to, subject, htmlContent, type });
         await email.save();
+        return { success: true, message: 'Email sent successfully' };
     } catch (error) {
         console.error('Error sending email:', error);
-        throw error;
+        // Lưu email vào database với trạng thái lỗi
+        const email = new Email({ to, subject, htmlContent, type, status: 'failed', error: error.message });
+        await email.save();
+        return { success: false, message: 'Failed to send email', error: error.message };
     }
 };
 

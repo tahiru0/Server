@@ -2,7 +2,7 @@ import express from 'express';
 import authenticate from '../middlewares/authenticate.js';
 import Company from '../models/Company.js';
 import Project from '../models/Project.js';
-import useUpload from '../utils/upload.js';
+import { useImageUpload } from '../utils/upload.js';
 import { sendEmail } from '../utils/emailService.js';
 import { accountActivationTemplate, emailChangeConfirmationTemplate, passwordResetTemplate, newAccountCreatedTemplate } from '../utils/emailTemplates.js';
 import crypto from 'crypto';
@@ -13,6 +13,8 @@ import { handleError } from '../utils/errorHandler.js';
 import { handleQuery } from '../utils/queryHelper.js';
 import { encrypt, decrypt } from '../utils/encryption.js';
 import { emailChangeLimiter } from '../utils/rateLimiter.js';
+import Major from '../models/Major.js';
+import Skill from '../models/Skill.js';
 
 const router = express.Router();
 
@@ -28,7 +30,7 @@ const findCompanyAccountById = async (decoded) => {
     return await Company.findCompanyAccountById(decoded);
 };
 
-const upload = useUpload('logos', 'company');
+const upload = useImageUpload('logos', 'company');
 
 // Middleware xác thực cho admin công ty
 const authenticateCompanyAdmin = authenticate(Company, findCompanyAccountById, 'admin');
@@ -779,15 +781,13 @@ router.post('/projects', authenticateCompanyAdmin, async (req, res, next) => {
       description, 
       mentorId, 
       objectives, 
-      startDate, 
-      endDate, 
       isRecruiting, 
-      maxApplicants, 
-      applicationStart, 
-      applicationEnd,
+      maxApplicants,
       requiredSkills,
       relatedMajors,
-      skillRequirements
+      skillRequirements,
+      applicationStart,
+      applicationEnd
     } = req.body;
 
     // Kiểm tra mentorId có phải là mentor trong công ty không
@@ -798,24 +798,40 @@ router.post('/projects', authenticateCompanyAdmin, async (req, res, next) => {
       return res.status(400).json({ message: 'Mentor không hợp lệ hoặc không thuộc công ty này.' });
     }
 
+    // Kiểm tra và xác thực các ID của major
+    let validatedMajors = [];
+    if (relatedMajors && relatedMajors.length > 0) {
+      validatedMajors = await Major.find({ _id: { $in: relatedMajors } });
+      if (validatedMajors.length !== relatedMajors.length) {
+        return res.status(400).json({ message: 'Một hoặc nhiều ID ngành học không hợp lệ.' });
+      }
+    }
+
+    // Kiểm tra và xác thực các ID của skill
+    let validatedSkills = [];
+    if (requiredSkills && requiredSkills.length > 0) {
+      validatedSkills = await Skill.find({ _id: { $in: requiredSkills } });
+      if (validatedSkills.length !== requiredSkills.length) {
+        return res.status(400).json({ message: 'Một hoặc nhiều ID kỹ năng không hợp lệ.' });
+      }
+    }
+
     const projectData = {
       title,
       description,
       company: req.user.company,
       mentor: mentorId,
       objectives,
-      startDate,
-      endDate,
       isRecruiting: isRecruiting || false,
       projectStatus: 'Đang thực hiện',
-      requiredSkills,
-      relatedMajors,
-      skillRequirements
+      requiredSkills: validatedSkills.map(skill => skill._id),
+      relatedMajors: validatedMajors.map(major => major._id),
+      skillRequirements,
     };
 
     if (isRecruiting) {
-      if (!maxApplicants || !applicationStart || !applicationEnd) {
-        return res.status(400).json({ message: 'Vui lòng cung cấp đầy đủ thông tin tuyển dụng' });
+      if (!maxApplicants) {
+        return res.status(400).json({ message: 'Vui lòng cung cấp số lượng ứng viên tối đa khi bật chế độ tuyển dụng' });
       }
       projectData.maxApplicants = maxApplicants;
       projectData.applicationStart = applicationStart;

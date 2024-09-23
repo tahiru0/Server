@@ -35,7 +35,9 @@ const projectSchema = new mongoose.Schema({
     applicantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
-      required: true
+      required: true,
+      unique: true,
+      message: 'Mỗi sinh viên chỉ có thể ứng tuyển một lần cho mỗi dự án'
     },
     appliedDate: {
       type: Date,
@@ -47,7 +49,9 @@ const projectSchema = new mongoose.Schema({
     studentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
-      required: true
+      required: true,
+      unique: true,
+      message: 'Mỗi sinh viên chỉ có thể được chọn một lần cho mỗi dự án'
     },
     appliedDate: {
       type: Date,
@@ -186,13 +190,20 @@ const projectSchema = new mongoose.Schema({
   pinnedProject: {
     type: Boolean,
     default: false
-  }
+  },
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 projectSchema.methods.pinProject = async function () {
   this.pinnedProject = true;
   await this.save();
 };
+
+// Thêm index unique cho applicants.applicantId
+projectSchema.index({ 'applicants.applicantId': 1 }, { unique: true, message: 'Mỗi sinh viên chỉ có thể ứng tuyển một lần cho mỗi dự án' });
+
+// Thêm index unique cho selectedApplicants.studentId
+projectSchema.index({ 'selectedApplicants.studentId': 1 }, { unique: true, message: 'Mỗi sinh viên chỉ có thể được chọn một lần cho mỗi dự án' });
+
 
 // Middleware để kiểm tra trạng thái trước khi thực hiện các hành động
 projectSchema.pre('save', function (next) {
@@ -271,25 +282,42 @@ projectSchema.methods.addApplicant = async function (applicantId) {
     throw new Error('Không nằm trong thời gian tuyển dụng');
   }
 
-  // Kiểm tra số lượng dự án mà sinh viên đã nộp đơn
-  const totalApplications = await mongoose.model('Project').countDocuments({
-    'applicants.applicantId': applicantId
-  });
-  if (totalApplications >= 10) {
+  const student = await mongoose.model('Student').findById(applicantId);
+  if (!student) {
+    throw new Error('Không tìm thấy sinh viên');
+  }
+
+  if (student.appliedProjects.length >= 10) {
     throw new Error('Sinh viên chỉ được nộp đơn vào tối đa 10 dự án');
   }
 
-  this.applicants.push({ applicantId });
+  if (student.currentProject) {
+    throw new Error('Sinh viên đã được chấp nhận vào một dự án khác');
+  }
 
-  // Tạo thông báo cho mentor
+  this.applicants.push({ applicantId });
+  student.appliedProjects.push(this._id);
+
+  await Promise.all([this.save(), student.save()]);
+
+  // Tạo thông báo cho mentor và sinh viên
   await Notification.insert({
     recipient: this.mentor,
     recipientModel: 'CompanyAccount',
     type: 'project',
-    content: `Có một ứng viên mới cho dự án "${this.title}"`,
+    content: notificationMessages.project.newApplicant(this.title),
+    relatedId: this._id
+  });
+
+  await Notification.insert({
+    recipient: applicantId,
+    recipientModel: 'Student',
+    type: 'project',
+    content: notificationMessages.project.applicationSubmitted(this.title),
     relatedId: this._id
   });
 };
+
 
 projectSchema.pre('save', async function (next) {
   const project = this;
@@ -334,19 +362,6 @@ projectSchema.pre('save', async function (next) {
 
     project.applicantHistory.push(...newHistory);
     project.applicants = []; // Xóa tất cả applicants sau khi đã lưu vào lịch sử
-  }
-
-  // Tạo thông báo khi có cập nhật dự án
-  if (this.isModified()) {
-    const students = await mongoose.model('Student').find({ _id: { $in: this.selectedApplicants.map(a => a.studentId) } });
-    const notifications = students.map(student => ({
-      recipient: student._id,
-      recipientModel: 'Student',
-      type: 'project',
-      content: `Dự án "${this.name}" đã được cập nhật`,
-      relatedId: this._id
-    }));
-    await Notification.insertMany(notifications);
   }
 
   next();
@@ -404,6 +419,9 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
     { _id: { $ne: this._id } },
     { $pull: { applicants: { applicantId: applicantId } } }
   );
+  // Xóa các đơn ứng tuyển khác của sinh viên
+  student.appliedProjects = student.appliedProjects.filter(projectId => projectId.toString() === this._id.toString());
+  await student.save();
 
   // Tạo thông báo cho sinh viên
   await Notification.insert({
@@ -482,6 +500,124 @@ projectSchema.methods.checkRecruitmentStatus = function () {
   return false; // Trạng thái không thay đổi
 };
 
+projectSchema.statics.getPublicProjects = async function (query, filters = {}, page = 1, limit = 10) {
+  let searchCriteria = {};
+
+  if (query && query.trim() !== '') {
+    if (mongoose.Types.ObjectId.isValid(query)) {
+      searchCriteria._id = new mongoose.Types.ObjectId(query);
+    } else {
+      searchCriteria.$or = [
+        { title: { $regex: query, $options: 'i' } },
+        { description: { $regex: query, $options: 'i' } }
+      ];
+    }
+  }
+
+  if (filters.status) {
+    searchCriteria.status = filters.status;
+  } else {
+    searchCriteria.isRecruiting = true;
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [projects, totalProjects] = await Promise.all([
+    this.find(searchCriteria)
+      .select('_id title status isRecruiting maxApplicants pinnedProject applicationStart applicationEnd requiredSkills relatedMajors')
+      .populate('company', 'name _id logo')
+      .populate('relatedMajors', 'name')
+      .populate('requiredSkills', 'name')
+      .sort({ pinnedProject: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    this.countDocuments(searchCriteria)
+  ]);
+
+  const formattedProjects = projects.map(project => {
+    let score = 0;
+    if (filters.skills && filters.skills.length > 0) {
+      score += project.requiredSkills.filter(skill => filters.skills.includes(skill._id.toString())).length;
+    }
+    if (filters.major) {
+      score += project.relatedMajors.some(major => major._id.toString() === filters.major) ? 1 : 0;
+    }
+    return {
+      _id: project._id,
+      title: project.title,
+      companyName: project.company.name,
+      companyId: project.company._id,
+      companyLogo: project.company.logo ? `http://localhost:5000${project.company.logo}` : null,
+      status: project.status,
+      isRecruiting: project.isRecruiting,
+      maxApplicants: project.maxApplicants,
+      pinnedProject: project.pinnedProject,
+      relatedMajors: project.relatedMajors.map(major => major.name),
+      requiredSkills: project.requiredSkills.map(skill => skill.name),
+      applicationStart: project.applicationStart,
+      applicationEnd: project.applicationEnd,
+      score: score
+    };
+  });
+
+  formattedProjects.sort((a, b) => b.score - a.score || b.pinnedProject - a.pinnedProject || b.createdAt - a.createdAt);
+
+  return {
+    projects: formattedProjects,
+    currentPage: page,
+    totalPages: Math.ceil(totalProjects / limit),
+    totalProjects
+  };
+};
+
+projectSchema.statics.getPublicProjectDetails = async function (projectId, studentId = null) {
+  const project = await this.findById(projectId)
+    .select('_id title description status isRecruiting maxApplicants applicationStart applicationEnd objectives startDate endDate projectStatus requiredSkills relatedMajors skillRequirements applicants selectedApplicants')
+    .populate('company', 'name logo')
+    .populate('relatedMajors', 'name')
+    .populate('requiredSkills', 'name')
+    .lean();
+
+  if (!project) return null;
+
+  let hasApplied = false;
+  let isSelected = false;
+
+  if (studentId) {
+    console.log('Checking for student:', studentId); // Thêm log
+    console.log('Applicants:', project.applicants); // Thêm log
+    hasApplied = project.applicants.some(applicant => applicant.applicantId.toString() === studentId.toString());
+    isSelected = project.selectedApplicants.some(selected => selected.studentId.toString() === studentId.toString());
+  }
+
+  console.log('Has Applied:', hasApplied); // Thêm log
+  console.log('Is Selected:', isSelected); // Thêm log
+
+  return {
+    _id: project._id,
+    title: project.title,
+    description: project.description,
+    companyName: project.company.name,
+    companyId: project.company._id,
+    companyLogo: project.company.logo ? `http://localhost:5000${project.company.logo}` : null,
+    status: project.status,
+    isRecruiting: project.isRecruiting,
+    maxApplicants: project.maxApplicants,
+    applicationStart: project.applicationStart,
+    applicationEnd: project.applicationEnd,
+    objectives: project.objectives,
+    startDate: project.startDate,
+    endDate: project.endDate,
+    projectStatus: project.projectStatus,
+    relatedMajors: project.relatedMajors.map(major => major.name),
+    requiredSkills: project.requiredSkills.map(skill => skill.name),
+    skillRequirements: project.skillRequirements,
+    hasApplied: hasApplied,
+    isSelected: isSelected
+  };
+};
+
 projectSchema.statics.searchProjects = async function (query, filters) {
   let searchCriteria = { company: filters.company }; // Thêm company vào bộ lọc
 
@@ -508,8 +644,12 @@ projectSchema.statics.searchProjects = async function (query, filters) {
     searchCriteria.endDate = { $lte: new Date(filters.endDate) };
   }
 
+  if (filters.major) {
+    searchCriteria.relatedMajors = { $in: filters.major };
+  }
+
   return this.find(searchCriteria)
-    .select('_id title mentor status isRecruiting applicants selectedApplicants maxApplicants pinnedProject')
+    .select('_id title mentor status isRecruiting applicants selectedApplicants maxApplicants pinnedProject relatedMajors requiredSkills')
     .populate({
       path: 'company',
       select: 'accounts',
@@ -518,6 +658,8 @@ projectSchema.statics.searchProjects = async function (query, filters) {
         select: 'name _id'
       }
     })
+    .populate('relatedMajors', 'name _id')
+    .populate('requiredSkills', 'name _id')
     .sort({ pinnedProject: -1 }) // Ưu tiên sắp xếp pinnedProject
     .then(projects => projects.map(project => {
       const mentor = project.company?.accounts?.find(account => account._id.toString() === project.mentor.toString());
@@ -534,9 +676,72 @@ projectSchema.statics.searchProjects = async function (query, filters) {
         approvedMemberCount: project.selectedApplicants.length,
         applicantCount: project.applicants.length,
         maxApplicants: project.maxApplicants,
-        pinnedProject: project.pinnedProject
+        pinnedProject: project.pinnedProject,
+        relatedMajors: project.relatedMajors.map(major => ({
+          _id: major._id,
+          name: major.name
+        })),
+        requiredSkills: project.requiredSkills.map(skill => ({
+          _id: skill._id,
+          name: skill.name
+        }))
       };
     }));
+};
+
+projectSchema.statics.getProjectDetails = async function (projectId, studentId) {
+  try {
+    const project = await this.findOne({ _id: projectId })
+      .populate({
+        path: 'selectedApplicants.studentId',
+        select: '_id name avatar'
+      })
+      .populate('relatedMajors')
+      .populate('requiredSkills')
+      .populate('company', 'name')
+      .lean();
+
+    if (!project) {
+      throw new Error('Không tìm thấy dự án');
+    }
+
+    const hasApplied = studentId ? project.applicants.some(applicant => applicant.applicantId.toString() === studentId) : false;
+    const isSelected = studentId ? project.selectedApplicants.some(selected => selected.studentId && selected.studentId._id.toString() === studentId) : false;
+
+    return {
+      id: project._id,
+      title: project.title,
+      description: project.description,
+      status: project.status,
+      isRecruiting: project.isRecruiting,
+      maxApplicants: project.maxApplicants,
+      applicationEnd: project.applicationEnd,
+      relatedMajors: project.relatedMajors.map(major => ({
+        id: major._id,
+        name: major.name
+      })),
+      requiredSkills: project.requiredSkills.map(skill => ({
+        id: skill._id,
+        name: skill.name
+      })),
+      members: project.selectedApplicants
+        .filter(applicant => applicant.studentId) // Lọc ra những applicant có studentId
+        .map(applicant => ({
+          id: applicant.studentId._id,
+          name: applicant.studentId.name,
+          avatar: applicant.studentId.avatar && !applicant.studentId.avatar.startsWith('http')
+            ? `http://localhost:5000${applicant.studentId.avatar}`
+            : applicant.studentId.avatar
+        })),
+      applicantsCount: project.applicants.length,
+      updatedAt: project.updatedAt,
+      companyName: project.company.name,
+      hasApplied: hasApplied,
+      isSelected: isSelected
+    };
+  } catch (error) {
+    throw new Error(error.message);
+  }
 };
 
 // Thêm middleware để xử lý cập nhật
@@ -628,10 +833,12 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
   });
 };
 
+
+
+
 const Project = mongoose.model('Project', projectSchema);
 
 export default Project;
-
 /**
  * @openapi
  * components:

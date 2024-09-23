@@ -2,7 +2,7 @@ import express from 'express';
 import Student from '../models/Student.js';
 import School from '../models/School.js';
 import authenticate from '../middlewares/authenticate.js';
-import useUpload from '../utils/upload.js';
+import { useImageUpload, useExcelUpload } from '../utils/upload.js';
 import { sendEmail } from '../utils/emailService.js';
 import { accountActivationTemplate, emailChangeConfirmationTemplate, passwordResetTemplate, newAccountCreatedTemplate } from '../utils/emailTemplates.js';
 import crypto from 'crypto';
@@ -13,6 +13,10 @@ import { emailChangeLimiter } from '../utils/rateLimiter.js';
 import Major from '../models/Major.js';
 import axios from 'axios';
 import mongoose from 'mongoose';
+import { handleQuery } from '../utils/queryHelper.js';
+import multer from 'multer';
+import xlsx from 'xlsx';
+
 
 const router = express.Router();
 
@@ -42,34 +46,42 @@ const authenticateSchoolAccount = authenticate(School, School.findSchoolAccountB
  */
 router.post('/approve-student/:studentId', authenticateSchoolAdmin, async (req, res) => {
     try {
-      const student = await Student.findById(req.params.studentId);
-      if (!student) {
-        return res.status(404).json({ message: 'Không tìm thấy sinh viên' });
-      }
-  
-      if (student.school.toString() !== req.user.school.toString()) {
-        return res.status(403).json({ message: 'Bạn không có quyền xác nhận sinh viên này' });
-      }
-  
-      if (student.isApproved) {
-        return res.status(400).json({ message: 'Tài khoản sinh viên đã được xác nhận trước đó' });
-      }
-  
-      student.isApproved = true;
-      student.approvedBy = req.user._id;
-      student.approvedAt = new Date();
-      await student.save();
-  
-      // Gửi email thông báo cho sinh viên
-      await sendApprovalEmail(student.email);
-  
-      res.json({ message: 'Xác nhận tài khoản sinh viên thành công' });
-    } catch (error) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+        const student = await Student.findById(req.params.studentId);
+        if (!student) {
+            return res.status(404).json({ message: 'Không tìm thấy sinh viên' });
+        }
 
-const upload = useUpload('logos', 'school');
+        if (student.school.toString() !== req.user.school.toString()) {
+            return res.status(403).json({ message: 'Bạn không có quyền xác nhận sinh viên này' });
+        }
+
+        if (student.isApproved) {
+            return res.status(400).json({ message: 'Tài khoản sinh viên đã được xác nhận trước đó' });
+        }
+
+        student.isApproved = true;
+        student.approvedBy = req.user._id;
+        student.approvedAt = new Date();
+        await student.save();
+
+        // Gửi email thông báo cho sinh viên
+        const emailResult = await sendEmail(
+            student.email,
+            'Xác nhận tài khoản sinh viên',
+            `Xin chúc mừng! Tài khoản sinh viên của bạn đã được xác nhận.`
+        );
+        if (!emailResult.success) {
+            console.error('Failed to send email:', emailResult.error);
+            // Có thể thêm logic xử lý lỗi ở đây nếu cần
+        }
+
+        res.json({ message: 'Xác nhận tài khoản sinh viên thành công' });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+});
+
+const upload = useImageUpload('logos', 'school');
 
 /**
  * @swagger
@@ -516,7 +528,7 @@ router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
 
 /**
  * @swagger
- * /api/school/guest-api-config:
+ * /api/school/student-api-config:
  *   get:
  *     summary: Lấy cấu hình API khách và quy tắc mật khẩu
  *     tags: [School]
@@ -530,7 +542,7 @@ router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
  *             schema:
  *               type: object
  *               properties:
- *                 guestApiConfig:
+ *                 studentApiConfig:
  *                   type: object
  *                   description: Cấu hình API khách
  *                 passwordRule:
@@ -541,15 +553,14 @@ router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
  *       500:
  *         description: Lỗi server
  */
-router.get('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
+router.get('/student-api-config', authenticateSchoolAdmin, async (req, res) => {
     try {
         const school = await School.findById(req.user.school);
         if (!school) {
             return res.status(404).json({ message: 'Không tìm thấy trường học.' });
         }
         res.status(200).json({
-            guestApiConfig: school.guestApiConfig || {},
-            passwordRule: school.studentApiConfig?.passwordRule || {}
+            studentApiConfig: school.studentApiConfig || {},
         });
     } catch (error) {
         const { status, message } = handleError(error);
@@ -559,7 +570,7 @@ router.get('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
 
 /**
  * @swagger
- * /api/school/guest-api-config:
+ * /api/school/student-api-config:
  *   put:
  *     summary: Tạo mới hoặc cập nhật cấu hình API khách và quy tắc mật khẩu
  *     tags: [School]
@@ -588,7 +599,7 @@ router.get('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
  *               properties:
  *                 message:
  *                   type: string
- *                 guestApiConfig:
+ *                 studentApiConfig:
  *                   type: object
  *                 passwordRule:
  *                   type: object
@@ -601,8 +612,8 @@ router.get('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
  *       500:
  *         description: Lỗi server
  */
-router.put('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
-    const { apiConfig, passwordRule } = req.body;
+router.put('/student-api-config', authenticateSchoolAdmin, async (req, res) => {
+    const { studentApiConfig } = req.body;
     const schoolId = req.user.school;
 
     try {
@@ -611,39 +622,41 @@ router.put('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
             return res.status(404).json({ message: 'Không tìm thấy trường học.' });
         }
 
-        // Cập nhật hoặc tạo mới cấu hình API khách
-        if (apiConfig) {
-            school.guestApiConfig = Object.entries(apiConfig).reduce((acc, [key, value]) => {
-                if (value !== null && value !== '') {
-                    acc[key] = value;
-                }
-                return acc;
-            }, {});
+        // Cập nhật toàn bộ cấu hình API sinh viên
+        if (studentApiConfig) {
+            school.studentApiConfig = {
+                ...school.studentApiConfig,
+                ...studentApiConfig
+            };
+
+            // Đảm bảo rằng các trường con cũng được cập nhật đúng cách
+            if (studentApiConfig.fieldMappings) {
+                school.studentApiConfig.fieldMappings = {
+                    ...school.studentApiConfig.fieldMappings,
+                    ...studentApiConfig.fieldMappings
+                };
+            }
+
+            if (studentApiConfig.passwordRule) {
+                school.studentApiConfig.passwordRule = {
+                    ...school.studentApiConfig.passwordRule,
+                    ...studentApiConfig.passwordRule
+                };
+            }
         }
 
-        // Cập nhật hoặc tạo mới quy tắc mật khẩu
-        if (!school.studentApiConfig) {
-            school.studentApiConfig = {};
-        }
-        if (passwordRule) {
-            school.studentApiConfig.passwordRule = Object.entries(passwordRule).reduce((acc, [key, value]) => {
-                if (value !== null && value !== '') {
-                    acc[key] = value;
-                }
-                return acc;
-            }, {});
-        }
-
-        // Kiểm tra request để đảm bảo API hoạt động
-        if (school.guestApiConfig && school.guestApiConfig.uri) {
+        // Kiểm tra kết nối API nếu URI được cung cấp
+        if (school.studentApiConfig && school.studentApiConfig.uri) {
             try {
-                const response = await axios.get(school.guestApiConfig.uri);
-                if (response.status !== 200) {
-                    throw new Error('API không hoạt động.');
+                const response = await axios.get(`${school.studentApiConfig.uri}1`); // Thêm một ID mẫu
+                if (response.status >= 200 && response.status < 300) {
+                    console.log('API hoạt động bình thường');
+                } else {
+                    throw new Error(`API trả về status code không mong đợi: ${response.status}`);
                 }
             } catch (error) {
                 if (error.response) {
-                    throw new Error('API không hoạt động: ' + error.response.statusText);
+                    throw new Error(`API không hoạt động: ${error.response.statusText} (Status: ${error.response.status})`);
                 } else if (error.request) {
                     throw new Error('Không thể kết nối đến API.');
                 } else {
@@ -654,10 +667,9 @@ router.put('/guest-api-config', authenticateSchoolAdmin, async (req, res) => {
 
         await school.save();
 
-        res.status(200).json({ 
-            message: 'Cấu hình API khách và quy tắc mật khẩu đã được cập nhật thành công', 
-            guestApiConfig: school.guestApiConfig,
-            passwordRule: school.studentApiConfig.passwordRule
+        res.status(200).json({
+            message: 'Cấu hình API sinh viên đã được cập nhật thành công',
+            studentApiConfig: school.studentApiConfig
         });
     } catch (error) {
         const { status, message } = handleError(error);
@@ -781,7 +793,7 @@ router.post('/students', authenticateSchoolAdmin, async (req, res) => {
     try {
         const school = await School.findById(schoolId);
         if (!password && (!school.studentApiConfig || !school.studentApiConfig.passwordRule || !school.studentApiConfig.passwordRule.template)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 message: 'Vui lòng cập nhật quy tắc mật khẩu hoặc cung cấp mật khẩu cho sinh viên.',
                 code: 'NO_PASSWORD_RULE'
             });
@@ -805,7 +817,7 @@ router.post('/students', authenticateSchoolAdmin, async (req, res) => {
         if (!password) {
             const defaultPassword = await newStudent.generateDefaultPassword();
             if (!defaultPassword) {
-                return res.status(400).json({ 
+                return res.status(400).json({
                     message: 'Vui lòng cập nhật quy tắc mật khẩu hoặc cung cấp mật khẩu cho sinh viên.',
                     code: 'NO_PASSWORD_RULE'
                 });
@@ -822,14 +834,228 @@ router.post('/students', authenticateSchoolAdmin, async (req, res) => {
         res.status(status).json({ message });
     }
 });
+const upload1 = useExcelUpload('excel', 'school');
+/**
+ * @swagger
+ * /api/school/students/upload:
+ *   post:
+ *     summary: Tải lên và tạo nhiều sinh viên từ file Excel
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Tải lên và tạo sinh viên thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 totalProcessed:
+ *                   type: integer
+ *                 successCount:
+ *                   type: integer
+ *                 errorCount:
+ *                   type: integer
+ *                 errors:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       row:
+ *                         type: integer
+ *                       error:
+ *                         type: string
+ *       400:
+ *         description: Lỗi dữ liệu đầu vào
+ *       500:
+ *         description: Lỗi server
+ */
+router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
+    upload1.single('file')(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            return res.status(400).json({ message: 'Lỗi khi tải lên file: ' + err.message });
+        } else if (err) {
+            return res.status(400).json({ message: err.message });
+        }
+        if (!req.file) {
+            return res.status(400).json({ message: 'Vui lòng tải lên một file Excel.' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    const schoolId = req.user.school;
+    const results = [];
+    const issues = [];
 
+    try {
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({ message: 'Không tìm thấy dữ liệu file.' });
+        }
+
+        if (req.file.size === 0) {
+            console.log('File rỗng được tải lên');
+            return res.status(400).json({ message: 'File tải lên không có dữ liệu.' });
+        }
+        if (!req.file.buffer || req.file.buffer.length === 0) {
+            console.log('Buffer của file rỗng');
+            return res.status(400).json({ message: 'Không thể đọc dữ liệu từ file.' });
+        }
+
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+            return res.status(400).json({ message: 'File Excel không hợp lệ hoặc không có sheet nào.' });
+        }
+
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        if (!sheet) {
+            return res.status(400).json({ message: 'Không tìm thấy dữ liệu trong sheet.' });
+        }
+
+        const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+        if (!data || data.length === 0 || !data[0]) {
+            return res.status(400).json({ message: 'Không có dữ liệu trong file Excel.' });
+        }
+
+        const headers = data[0].map(header => header ? header.toLowerCase().trim().replace(/[-\s]/g, '') : '');
+        const requiredFields = ['name', 'email', 'studentid', 'dateofbirth', 'major'];
+        const missingFields = requiredFields.filter(field => !headers.includes(field));
+
+        if (missingFields.length > 0) {
+            return res.status(400).json({ message: `Thiếu các trường bắt buộc: ${missingFields.join(', ')}` });
+        }
+
+        const fieldIndexes = requiredFields.reduce((acc, field) => {
+            acc[field] = headers.indexOf(field);
+            return acc;
+        }, {});
+
+        const school = await School.findById(schoolId);
+        if (!school.studentApiConfig || !school.studentApiConfig.passwordRule || !school.studentApiConfig.passwordRule.template) {
+            return res.status(400).json({ message: 'Vui lòng cập nhật quy tắc mật khẩu trước khi tạo sinh viên.' });
+        }
+
+        for (let i = 1; i < data.length; i++) {
+            const row = data[i];
+            try {
+                const studentData = {
+                    name: row[fieldIndexes.name],
+                    email: row[fieldIndexes.email],
+                    studentId: row[fieldIndexes.studentid],
+                    dateOfBirth: row[fieldIndexes.dateofbirth],
+                    major: row[fieldIndexes.major]
+                };
+
+                if (Object.values(studentData).some(value => !value)) {
+                    throw new Error('Thiếu thông tin bắt buộc');
+                }
+
+                let majorDoc = await Major.findOne({ name: { $regex: new RegExp('^' + studentData.major.trim() + '$', 'i') } });
+                if (!majorDoc) {
+                    majorDoc = new Major({ name: studentData.major.trim() });
+                    await majorDoc.save();
+                }
+                let majorDocs = [majorDoc._id];
+
+                const newStudent = new Student({
+                    ...studentData,
+                    major: majorDocs,
+                    school: schoolId,
+                    isApproved: true
+                });
+
+                const defaultPassword = await newStudent.generateDefaultPassword();
+                if (!defaultPassword) {
+                    throw new Error('Không thể tạo mật khẩu mặc định.');
+                }
+                newStudent.password = defaultPassword;
+
+                await newStudent.save();
+                results.push(newStudent);
+            } catch (error) {
+                const { message } = handleError(error);
+                issues.push({ row: i + 1, issue: message });
+            }
+        }
+
+        res.status(201).json({
+            message: 'Tải lên và tạo sinh viên thành công',
+            totalProcessed: data.length - 1,
+            successCount: results.length,
+            issueCount: issues.length,
+            issues: issues
+        });
+    } catch (error) {
+        const { status, message } = handleError(error);
+        res.status(status).json({ message });
+    }
+});
 // Lấy danh sách sinh viên
 router.get('/students', authenticateSchoolAccount, async (req, res) => {
     const schoolId = req.user.school;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
 
     try {
-        const students = await Student.find({ school: schoolId, isDeleted: false });
-        res.status(200).json(students);
+        const additionalFilters = { school: schoolId, isDeleted: false };
+
+        // Xử lý tìm kiếm
+        if (req.query.search) {
+            additionalFilters.$or = [
+                { name: { $regex: req.query.search, $options: 'i' } },
+                { email: { $regex: req.query.search, $options: 'i' } },
+                { studentId: { $regex: req.query.search, $options: 'i' } }
+            ];
+        }
+
+        // Xử lý lọc theo trạng thái xác nhận
+        if (req.query.isApproved) {
+            additionalFilters.isApproved = req.query.isApproved === 'true';
+        }
+
+        // Xử lý lọc theo ngành học
+        if (req.query.major) {
+            additionalFilters.major = req.query.major;
+        }
+
+        const query = handleQuery(Student, req, additionalFilters);
+
+        // Xử lý sắp xếp
+        if (req.query.sort) {
+            const sortOrder = req.query.order === 'desc' ? -1 : 1;
+            query.sort({ [req.query.sort]: sortOrder });
+        } else {
+            query.sort({ createdAt: -1 }); // Mặc định sắp xếp theo thời gian tạo mới nhất
+        }
+
+        const totalStudents = await Student.countDocuments(additionalFilters);
+
+        const students = await query
+            .select('_id name avatar school isApproved studentId major')
+            .populate('school', 'name')
+            .populate('major', 'name')
+            .skip((page - 1) * limit)
+            .limit(limit);
+
+        res.status(200).json({
+            students,
+            currentPage: page,
+            totalPages: Math.ceil(totalStudents / limit),
+            totalStudents
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -1086,7 +1312,7 @@ router.put('/update-password-rule', authenticateSchoolAdmin, async (req, res) =>
 });
 /**
  * @swagger
- * /api/school/check-guest-api-connection:
+ * /api/school/check-student-api-connection:
  *   post:
  *     summary: Kiểm tra kết nối API khách và lấy dữ liệu sinh viên
  *     tags: [School]
@@ -1126,11 +1352,14 @@ router.put('/update-password-rule', authenticateSchoolAdmin, async (req, res) =>
 function trimTrailingSlash(url) {
     return url.endsWith('/') ? url.slice(0, -1) : url;
 }
-router.post('/check-guest-api-connection', authenticateSchoolAdmin, async (req, res) => {
+router.post('/check-student-api-connection', authenticateSchoolAdmin, async (req, res) => {
     try {
         const { uri, id } = req.body;
-        if (!uri || !id) {
-            return res.status(400).json({ message: 'URI và ID là bắt buộc.', code: 'MISSING_PARAMS' });
+        if (!uri) {
+            return res.status(400).json({ message: 'URI là bắt buộc.', code: 'MISSING_URI' });
+        }
+        if (!id) {
+            return res.status(400).json({ message: 'ID là bắt buộc.', code: 'MISSING_ID' });
         }
 
         const trimmedUri = trimTrailingSlash(uri);
@@ -1139,42 +1368,115 @@ router.post('/check-guest-api-connection', authenticateSchoolAdmin, async (req, 
         try {
             const response = await axios.get(apiUrl);
             if (response.status === 200 && response.data) {
-                res.status(200).json({ 
-                    message: 'Kết nối API thành công.', 
-                    data: response.data 
+                res.status(200).json({
+                    message: 'Kết nối API thành công.',
+                    data: response.data
                 });
             } else {
-                res.status(400).json({ 
-                    message: 'API không trả về dữ liệu hợp lệ.', 
-                    code: 'INVALID_RESPONSE' 
+                res.status(400).json({
+                    message: 'API không trả về dữ liệu hợp lệ.',
+                    code: 'INVALID_RESPONSE'
                 });
             }
         } catch (error) {
             if (error.response) {
-                res.status(error.response.status).json({ 
-                    message: `API trả về lỗi: ${error.response.statusText}`, 
+                res.status(error.response.status).json({
+                    message: `API trả về lỗi: ${error.response.statusText}`,
                     code: 'API_ERROR',
                     details: error.response.data
                 });
             } else if (error.request) {
-                res.status(500).json({ 
-                    message: 'Không thể kết nối đến API.', 
-                    code: 'CONNECTION_ERROR' 
+                res.status(500).json({
+                    message: 'Không thể kết nối đến API.',
+                    code: 'CONNECTION_ERROR'
                 });
             } else {
-                res.status(500).json({ 
-                    message: 'Lỗi khi kiểm tra API: ' + error.message, 
-                    code: 'UNKNOWN_ERROR' 
+                res.status(500).json({
+                    message: 'Lỗi khi kiểm tra API: ' + error.message,
+                    code: 'UNKNOWN_ERROR'
                 });
             }
         }
     } catch (error) {
         console.error('Server error:', error);
-        res.status(500).json({ 
-            message: 'Lỗi server khi kiểm tra kết nối API.', 
+        res.status(500).json({
+            message: 'Lỗi server khi kiểm tra kết nối API.',
             code: 'SERVER_ERROR',
-            details: error.message 
+            details: error.message
         });
+    }
+});
+/**
+ * @swagger
+ * /api/school/unapproved-students:
+ *   get:
+ *     summary: Lấy danh sách sinh viên chưa được xác nhận
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Danh sách sinh viên chưa được xác nhận
+ *       401:
+ *         description: Không có quyền truy cập
+ *       500:
+ *         description: Lỗi máy chủ
+ */
+router.get('/unapproved-students', authenticateSchoolAdmin, async (req, res) => {
+    try {
+        const additionalFilters = { school: req.user.school, isApproved: false };
+        const query = handleQuery(Student, req, additionalFilters);
+        const students = await query.select('_id name avatar school isApproved studentId major')
+            .populate('school', 'name')
+            .populate('major', 'name');
+        res.status(200).json(students);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+/**
+ * @swagger
+ * /api/school/majors:
+ *   get:
+ *     summary: Lấy danh sách ngành học
+ *     tags: [School]
+ *     security:
+ *       - schoolAccountBearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Tìm kiếm theo tên ngành học
+ *     responses:
+ *       200:
+ *         description: Danh sách ngành học
+ *       401:
+ *         description: Không có quyền truy cập
+ *       500:
+ *         description: Lỗi máy chủ
+ */
+router.get('/majors', authenticateSchoolAccount, async (req, res) => {
+    try {
+        let query = {};
+        if (req.query.search) {
+            query.name = { $regex: new RegExp('^' + req.query.search, 'i') };
+        }
+
+        const majors = await Major.find(query)
+            .select('_id name description')
+            .sort({ name: 1 })
+            .limit(10);
+
+        const formattedMajors = majors.map(major => ({
+            _id: major._id,
+            name: major.name,
+            description: major.description
+        }));
+
+        res.status(200).json(formattedMajors);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
 });
 

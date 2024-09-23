@@ -168,35 +168,46 @@ notificationSchema.pre('validate', function(next) {
 
 // Thêm hàm insert
 notificationSchema.statics.insert = async function(notificationData) {
-  let recipient;
-  let parentId;
-  if (notificationData.recipientModel === 'CompanyAccount' || notificationData.recipientModel === 'SchoolAccount') {
-    const ParentModel = mongoose.model(notificationData.recipientModel === 'CompanyAccount' ? 'Company' : 'School');
-    const parent = await ParentModel.findOne({ 'accounts._id': notificationData.recipient });
-    if (!parent) {
-      console.error(`Không tìm thấy ${notificationData.recipientModel} với tài khoản ID ${notificationData.recipient}`);
-      throw new Error(`Không tìm thấy ${notificationData.recipientModel} với tài khoản ID ${notificationData.recipient}`);
+  try {
+    let recipient;
+    let parentId;
+    let recipientRole;
+
+    if (notificationData.recipientModel === 'CompanyAccount' || notificationData.recipientModel === 'SchoolAccount') {
+      const ParentModel = mongoose.model(notificationData.recipientModel === 'CompanyAccount' ? 'Company' : 'School');
+      const parent = await ParentModel.findOne({ 'accounts._id': notificationData.recipient });
+      if (!parent) {
+        console.error(`Không tìm thấy ${notificationData.recipientModel} với tài khoản ID ${notificationData.recipient}`);
+        return null;
+      }
+      recipient = parent.accounts.id(notificationData.recipient);
+      parentId = parent._id;
+      recipientRole = recipient.role;
+    } else {
+      recipient = await mongoose.model(notificationData.recipientModel).findById(notificationData.recipient);
+      parentId = null; // Đặt parentId là null cho các trường hợp khác
     }
-    recipient = parent.accounts.id(notificationData.recipient);
-    parentId = parent._id;
-  } else {
-    recipient = await mongoose.model(notificationData.recipientModel).findById(notificationData.recipient);
-  }
 
-  if (!recipient) {
-    console.error(`Không tìm thấy người nhận với ID ${notificationData.recipient}`);
-    throw new Error(`Không tìm thấy người nhận với ID ${notificationData.recipient}`);
-  }
+    if (!recipient) {
+      console.error(`Không tìm thấy người nhận với ID ${notificationData.recipient}`);
+      return null;
+    }
 
-  const notification = new this({
-    ...notificationData,
-    recipient: notificationData.recipient,
-    parentId: parentId
-  });
-  await notification.save();
-  console.log('Notification saved:', notification);
-  notificationStream.sendNotification(notification);
-  return notification;
+    const notification = new this({
+      ...notificationData,
+      recipient: notificationData.recipient,
+      parentId: parentId,
+      recipientRole: recipientRole // Thêm recipientRole vào thông báo
+    });
+
+    await notification.save();
+    console.log('Notification saved:', notification);
+    notificationStream.sendNotification(notification);
+    return notification;
+  } catch (error) {
+    console.error('Lỗi khi tạo thông báo:', error);
+    return null;
+  }
 };
 
 const Notification = mongoose.model('Notification', notificationSchema);

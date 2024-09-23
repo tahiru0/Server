@@ -5,8 +5,10 @@ export const handleQuery = (Model, req, additionalFilters = {}) => {
 
   // Xử lý additionalFilters
   Object.keys(additionalFilters).forEach(key => {
-    if (additionalFilters[key] != null && additionalFilters[key].trim() !== '') {
-      if (mongoose.Types.ObjectId.isValid(additionalFilters[key])) {
+    if (additionalFilters[key] != null) {
+      if (typeof additionalFilters[key] === 'string' && additionalFilters[key].trim() !== '') {
+        query = query.where(key).equals(additionalFilters[key].trim());
+      } else if (additionalFilters[key] instanceof mongoose.Types.ObjectId || mongoose.Types.ObjectId.isValid(additionalFilters[key])) {
         query = query.where(key).equals(new mongoose.Types.ObjectId(additionalFilters[key]));
       } else {
         query = query.where(key).equals(additionalFilters[key]);

@@ -13,20 +13,26 @@ import LoginHistory from '../models/LoginHistory.js';
 import Notification from '../models/Notification.js';
 import authenticate from '../middlewares/authenticate.js';
 import School from '../models/School.js';
+import notificationMessages from '../utils/notificationMessages.js'; // Import notificationMessages
+import axios from 'axios';
 
 const router = express.Router();
 
-const isNewDevice = (user, userModel, ipAddress, userAgent) => {
+const isNewDevice = async (user, userModel, ipAddress, userAgent) => {
   const deviceInfo = parseUserAgent(userAgent);
-  return LoginHistory.findOne({
-    user: user._id,
-    userModel: userModel,
-    ipAddress: ipAddress,
-    'deviceInfo.browser': deviceInfo.browser,
-    'deviceInfo.version': deviceInfo.version,
-    'deviceInfo.os': deviceInfo.os,
-    'deviceInfo.deviceType': getDeviceType(userAgent)
-  }).then(existingLogin => !existingLogin);
+  const loginHistory = await LoginHistory.find({ user: user._id, userModel: userModel });
+
+  if (loginHistory.length === 0) {
+    // Lần đăng nhập đầu tiên, bỏ qua kiểm tra
+    return false;
+  }
+
+  return !loginHistory.some(history => 
+    history.ipAddress === ipAddress &&
+    history.deviceInfo.browser === deviceInfo.browser &&
+    history.deviceInfo.version === deviceInfo.version &&
+    history.deviceInfo.os === deviceInfo.os 
+  );
 };
   
 /**
@@ -125,7 +131,7 @@ const loginAdmin = async (req, res) => {
         recipient: admin._id,
         recipientModel: 'Admin',
         type: 'account',
-        content: 'Đăng nhập từ thiết bị mới được phát hiện. Nếu không phải bạn, hãy thay đổi mật khẩu ngay lập tức.'
+        content: notificationMessages.account.newDeviceLogin()  // Sử dụng key từ notificationMessages
       });
     }
 
@@ -224,7 +230,7 @@ const loginCompany = async (req, res) => {
         recipientModel: 'CompanyAccount',
         recipientRole: account.role,
         type: 'account',
-        content: 'Đăng nhập từ thiết bị mới được phát hiện. Nếu không phải bạn, hãy thay đổi mật khẩu ngay lập tức.'
+        content: notificationMessages.account.newDeviceLogin()  // Sử dụng key từ notificationMessages
       });
     }
 
@@ -323,7 +329,7 @@ const loginSchool = async (req, res) => {
         recipientModel: 'SchoolAccount',
         recipientRole: account.role.name, // Thêm dòng này
         type: 'account',
-        content: 'Đăng nhập từ thiết bị mới được phát hiện. Nếu không phải bạn, hãy thay đổi mật khẩu ngay lập tức.'
+        content: notificationMessages.account.newDeviceLogin()  // Sử dụng key từ notificationMessages
       });
     }
 
@@ -356,7 +362,9 @@ const loginSchool = async (req, res) => {
  *           schema:
  *             type: object
  *             properties:
- *               email:
+ *               schoolId:
+ *                 type: string
+ *               studentId:
  *                 type: string
  *               password:
  *                 type: string
@@ -365,6 +373,10 @@ const loginSchool = async (req, res) => {
  *         description: Đăng nhập thành công
  *       400:
  *         description: Lỗi dữ liệu đầu vào
+ *       404:
+ *         description: Không tìm thấy thông tin trường học
+ *       500:
+ *         description: Lỗi máy chủ
  */
 const loginStudent = async (req, res) => {
   let loginSuccess = false;
@@ -383,51 +395,20 @@ const loginStudent = async (req, res) => {
       throw new Error('Mật khẩu không được để trống.');
     }
 
-    let student = await Student.findBySchoolAndStudentId(schoolId, studentId);
+    const student = await Student.findBySchoolAndStudentId(schoolId, studentId);
+    console.log(`Result of finding student: ${student}`);
 
     if (!student) {
-      // Lấy thông tin sinh viên từ API khách
-      const school = await School.findById(schoolId);
-      if (!school || !school.studentApiConfig || !school.studentApiConfig.uri) {
-        throw new Error('Cấu hình API không hợp lệ.');
-      }
-
-      const response = await axios.get(`${school.studentApiConfig.uri}/${studentId}`);
-      const studentData = response.data;
-
-      // Tạo đối tượng Student tạm thời để gọi phương thức generateDefaultPassword
-      const tempStudent = new Student({
-        dateOfBirth: studentData[school.studentApiConfig.fieldMappings.dateOfBirth],
-        school: schoolId
-      });
-
-      const defaultPassword = studentData[school.studentApiConfig.fieldMappings.defaultPassword] || await tempStudent.generateDefaultPassword();
-
-      if (password !== defaultPassword) {
-        throw new Error('Thông tin đăng nhập không chính xác.');
-      }
-
-      // Tạo sinh viên mới trong database
-      student = new Student({
-        name: studentData[school.studentApiConfig.fieldMappings.name],
-        email: studentData[school.studentApiConfig.fieldMappings.email],
-        studentId: studentData[school.studentApiConfig.fieldMappings.studentId],
-        major: studentData[school.studentApiConfig.fieldMappings.major],
-        dateOfBirth: studentData[school.studentApiConfig.fieldMappings.dateOfBirth],
-        school: schoolId,
-        password: defaultPassword
-      });
-
-      await student.save();
-    } else {
-      const isPasswordValid = await student.comparePassword(password);
-      if (!isPasswordValid) {
-        throw new Error('Thông tin đăng nhập không chính xác.');
-      }
+      throw new Error('Thông tin đăng nhập không chính xác.');
     }
 
-    if (!student.isActive) {
-      throw new Error('Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.');
+    if (!student.isApproved) {
+      throw new Error('Tài khoản chưa được phê duyệt, hãy liên hệ trường của bạn.');
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, student.passwordHash);
+    if (!isPasswordValid) {
+      throw new Error('Thông tin đăng nhập không chính xác.');
     }
 
     const ipAddress = req.ip;
@@ -440,12 +421,12 @@ const loginStudent = async (req, res) => {
 
     const isNewDev = await isNewDevice(student, 'Student', ipAddress, req.headers['user-agent']);
     if (isNewDev) {
-      Notification.insert({
+      await Notification.insert({
         recipient: student._id,
         recipientModel: 'Student',
         type: 'account',
-        content: 'Đăng nhập từ thiết bị mới được phát hiện. Nếu không phải bạn, hãy thay đổi mật khẩu ngay lập tức.'
-      }).catch(error => console.error('Error sending notification:', error));
+        content: notificationMessages.account.newDeviceLogin()
+      });
     }
 
     loginSuccess = true;
@@ -732,7 +713,7 @@ router.post('/change-password', authenticate(), async (req, res) => {
       recipientModel: userType,
       recipientRole: user.role,
       type: 'account',
-      content: 'Mật khẩu của bạn đã được thay đổi thành công.'
+      content: notificationMessages.account.passwordChanged // Sử dụng key từ notificationMessages
     });
 
     res.json({ message: 'Đổi mật khẩu thành công' });
@@ -744,8 +725,25 @@ router.post('/change-password', authenticate(), async (req, res) => {
 // Thêm route này vào cuối file, trước export default router
 router.get('/schools', async (req, res) => {
   try {
-    const schools = await School.find({ isDeleted: false }, 'name address');
-    res.json(schools);
+    const query = req.query.query;
+
+    if (!query || query.length < 2) {
+      return res.status(400).json({ message: 'Vui lòng nhập ít nhất 2 ký tự để tìm kiếm.' });
+    }
+
+    let searchCriteria = { isDeleted: false };
+
+    if (query.length === 24 && /^[0-9a-fA-F]{24}$/.test(query)) {
+      // Nếu query là một ID hợp lệ
+      searchCriteria._id = query;
+    } else {
+      // Tìm kiếm theo tên trường
+      searchCriteria.name = { $regex: query, $options: 'i' };
+    }
+
+    const schools = await School.find(searchCriteria, '_id name logo').limit(10);
+
+    res.status(200).json(schools);
   } catch (error) {
     res.status(500).json({ message: 'Lỗi khi lấy danh sách trường học', error: error.message });
   }

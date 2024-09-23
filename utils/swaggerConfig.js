@@ -39,6 +39,12 @@ const swaggerOptions = {
           bearerFormat: 'JWT',
           description: 'Sử dụng cho Company Admin',
         },
+        studentBearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Sử dụng cho Sinh viên',
+        },
       },
     },
   },

@@ -17,7 +17,6 @@ export const generateTokens = (user, model, ipAddress, additionalInfo = {}) => {
         { expiresIn: '1h' } // Tăng lên 1 giờ hoặc nhiều hơn
     );
 
-
     const refreshTokenPayload = {
         _id: user._id,
         model,

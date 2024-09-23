@@ -18,7 +18,8 @@ const LoginHistorySchema = new mongoose.Schema({
         city: String,
         latitude: Number,
         longitude: Number
-    }
+    },
+    isFirstLogin: { type: Boolean, default: false }
 }, { timestamps: true });
 
 // Phương thức để lấy thông tin user
