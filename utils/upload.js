@@ -30,6 +30,9 @@ const generateUniqueFilename = (dir, filename) => {
 const useImageUpload = (baseDirectory, customDir) => {
     const storage = multer.diskStorage({
         destination: (req, file, cb) => {
+            if (!req.user || !req.user._id) {
+                return cb(new Error('Người dùng chưa được xác thực'), null);
+            }
             const userId = req.user._id;
             const dir = path.join('public', 'uploads', baseDirectory, customDir, userId.toString());
             createDirectory(dir);
@@ -121,5 +124,62 @@ const usePDFUpload = (baseDirectory, customDir) => {
     });
 };
 
-export { useImageUpload, useExcelUpload, usePDFUpload };
+const useRegistrationImageUpload = (baseDirectory, customDir) => {
+    const storage = multer.diskStorage({
+        destination: (req, file, cb) => {
+            const tempDir = path.join('public', 'uploads', 'temp', baseDirectory, customDir);
+            createDirectory(tempDir);
+            req.uploadDir = tempDir;
+            cb(null, tempDir);
+        },
+        filename: (req, file, cb) => {
+            const fileExtension = path.extname(file.originalname).toLowerCase();
+            if (!allowedImageExtensions.includes(fileExtension)) {
+                return cb(new Error('Loại tệp không được hỗ trợ.'));
+            }
+            const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${fileExtension}`;
+            cb(null, uniqueFilename);
+        }
+    });
+
+    const fileFilter = (req, file, cb) => {
+        const fileExtension = path.extname(file.originalname).toLowerCase();
+        if (allowedImageExtensions.includes(fileExtension)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Loại tệp không được hỗ trợ.'), false);
+        }
+    };
+
+    return multer({
+        storage: storage,
+        fileFilter: fileFilter,
+        limits: {
+            fileSize: maxFileSize
+        }
+    });
+};
+
+const cleanupTempFiles = async () => {
+    const tempDir = path.join('public', 'uploads', 'temp');
+    const maxAge = 24 * 60 * 60 * 1000; // 24 giờ
+
+    try {
+        const files = await fs.readdir(tempDir);
+        for (const file of files) {
+            const filePath = path.join(tempDir, file);
+            const stats = await fs.stat(filePath);
+            if (Date.now() - stats.mtime.getTime() > maxAge) {
+                await fs.unlink(filePath);
+            }
+        }
+    } catch (error) {
+        console.error('Lỗi khi dọn dẹp tệp tạm:', error);
+    }
+};
+
+// Chạy hàm này định kỳ, ví dụ mỗi 24 giờ
+setInterval(cleanupTempFiles, 24 * 60 * 60 * 1000);
+
+export { useImageUpload, useExcelUpload, usePDFUpload, useRegistrationImageUpload };
 

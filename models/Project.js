@@ -36,7 +36,7 @@ const projectSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
       required: true,
-      unique: true,
+      sparse: true, // Cho phép các giá trị null hoặc không xác định trong trường này, giúp tránh xung đột với các giá trị unique khác
       message: 'Mỗi sinh viên chỉ có thể ứng tuyển một lần cho mỗi dự án'
     },
     appliedDate: {
@@ -50,7 +50,7 @@ const projectSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
       required: true,
-      unique: true,
+      sparse: true,
       message: 'Mỗi sinh viên chỉ có thể được chọn một lần cho mỗi dự án'
     },
     appliedDate: {
@@ -199,10 +199,10 @@ projectSchema.methods.pinProject = async function () {
 };
 
 // Thêm index unique cho applicants.applicantId
-projectSchema.index({ 'applicants.applicantId': 1 }, { unique: true, message: 'Mỗi sinh viên chỉ có thể ứng tuyển một lần cho mỗi dự án' });
+projectSchema.index({ 'applicants.applicantId': 1 }, { unique: true, sparse: true, message: 'Mỗi sinh viên chỉ có thể ứng tuyển một lần cho mỗi dự án' });
 
 // Thêm index unique cho selectedApplicants.studentId
-projectSchema.index({ 'selectedApplicants.studentId': 1 }, { unique: true, message: 'Mỗi sinh viên chỉ có thể được chọn một lần cho mỗi dự án' });
+projectSchema.index({ 'selectedApplicants.studentId': 1 }, { unique: true, sparse: true, message: 'Mỗi sinh viên chỉ có thể được chọn một lần cho mỗi dự án' });
 
 
 // Middleware để kiểm tra trạng thái trước khi thực hiện các hành động
@@ -247,7 +247,9 @@ projectSchema.pre('findOneAndUpdate', function (next) {
 // Cập nhật các phương thức để kiểm tra trạng thái
 projectSchema.methods.checkAndRemoveApplicants = async function () {
   if (this.status === 'Closed') {
-    throw new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này');
+    const error = new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này');
+    error.status = 400;
+    throw error;
   }
   const sevenDaysAgo = new Date(new Date().setDate(new Date().getDate() - 7));
   const removedApplicants = this.applicants.filter(applicant => applicant.appliedDate <= sevenDaysAgo);
@@ -269,30 +271,44 @@ projectSchema.methods.checkAndRemoveApplicants = async function () {
 
 projectSchema.methods.addApplicant = async function (applicantId) {
   if (this.status === 'Closed') {
-    throw new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này');
+    const error = new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này');
+    error.status = 400;
+    throw error;
   }
   if (!this.isRecruiting) {
-    throw new Error('Dự án không đang tuyển dụng');
+    const error = new Error('Dự án không đang tuyển dụng');
+    error.status = 400;
+    throw error;
   }
   if (this.applicants.length >= this.maxApplicants) {
-    throw new Error('Đã đạt đến số lượng ứng viên tối đa');
+    const error = new Error('Đã đạt đến số lượng ứng viên tối đa');
+    error.status = 400;
+    throw error;
   }
   const now = new Date();
   if (now < this.applicationStart || now > this.applicationEnd) {
-    throw new Error('Không nằm trong thời gian tuyển dụng');
+    const error = new Error('Không nằm trong thời gian tuyển dụng');
+    error.status = 400;
+    throw error;
   }
 
   const student = await mongoose.model('Student').findById(applicantId);
   if (!student) {
-    throw new Error('Không tìm thấy sinh viên');
+    const error = new Error('Không tìm thấy sinh viên');
+    error.status = 400;
+    throw error;
   }
 
   if (student.appliedProjects.length >= 10) {
-    throw new Error('Sinh viên chỉ được nộp đơn vào tối đa 10 dự án');
+    const error = new Error('Sinh viên chỉ được nộp đơn vào tối đa 10 dự án');
+    error.status = 400;
+    throw error;
   }
 
   if (student.currentProject) {
-    throw new Error('Sinh viên đã được chấp nhận vào một dự án khác');
+    const error = new Error('Sinh viên đã được chấp nhận vào một dự án khác');
+    error.status = 400;
+    throw error;
   }
 
   this.applicants.push({ applicantId });
@@ -391,16 +407,22 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
 
   const applicant = this.applicants.find(a => a.applicantId.toString() === applicantId.toString());
   if (!applicant) {
-    throw new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
+    const error = new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
+    error.status = 400;
+    throw error;
   }
 
   const student = await mongoose.model('Student').findById(applicantId);
   if (!student) {
-    throw new Error('Không tìm thấy sinh viên');
+    const error = new Error('Không tìm thấy sinh viên');
+    error.status = 400;
+    throw error;
   }
 
   if (student.currentProject) {
-    throw new Error('Sinh viên đã được chấp nhận vào một dự án khác');
+    const error = new Error('Sinh viên đã được chấp nhận vào một dự án khác');
+    error.status = 400;
+    throw error;
   }
 
   this.selectedApplicants.push({
@@ -440,17 +462,28 @@ projectSchema.methods.checkDuplicateSelectedApplicants = async function(applican
   });
 
   if (existingProject) {
-    throw new Error('Sinh viên đã được chọn vào một dự án khác');
+    const error = new Error('Sinh viên đã được chọn vào một dự án khác');
+    error.status = 400;
+    throw error;
   }
 };
 
 projectSchema.methods.removeApplicant = async function (applicantId, reason = 'rejected') {
   const applicantIndex = this.applicants.findIndex(a => a.applicantId.toString() === applicantId.toString());
   if (applicantIndex === -1) {
-    throw new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
+    const error = new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
+    error.status = 400;
+    throw error;
   }
 
   this.applicants.splice(applicantIndex, 1);
+
+  const student = await mongoose.model('Student').findById(applicantId);
+  if (student) {
+    student.appliedProjects = student.appliedProjects.filter(id => id.toString() !== this._id.toString());
+    await student.save();
+  }
+
   await this.save();
 
   // Tạo thông báo cho sinh viên
@@ -520,6 +553,14 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
     searchCriteria.isRecruiting = true;
   }
 
+  if (filters.major) {
+    searchCriteria.relatedMajors = { $in: [filters.major] };
+  }
+
+  if (filters.skills && filters.skills.length > 0) {
+    searchCriteria.requiredSkills = { $in: filters.skills };
+  }
+
   const skip = (page - 1) * limit;
 
   const [projects, totalProjects] = await Promise.all([
@@ -548,7 +589,7 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
       title: project.title,
       companyName: project.company.name,
       companyId: project.company._id,
-      companyLogo: project.company.logo ? `http://localhost:5000${project.company.logo}` : null,
+      companyLogo: project.company.logo ? (project.company.logo.startsWith('http') ? project.company.logo : `http://localhost:5000${project.company.logo}`) : null,
       status: project.status,
       isRecruiting: project.isRecruiting,
       maxApplicants: project.maxApplicants,
@@ -600,7 +641,7 @@ projectSchema.statics.getPublicProjectDetails = async function (projectId, stude
     description: project.description,
     companyName: project.company.name,
     companyId: project.company._id,
-    companyLogo: project.company.logo ? `http://localhost:5000${project.company.logo}` : null,
+    companyLogo: project.company.logo ? (project.company.logo.startsWith('http') ? project.company.logo : `http://localhost:5000${project.company.logo}`) : null,
     status: project.status,
     isRecruiting: project.isRecruiting,
     maxApplicants: project.maxApplicants,
@@ -761,18 +802,24 @@ projectSchema.methods.changeMentor = async function (newMentorId, oldMentorId, c
   const company = await Company.findById(companyId);
 
   if (!company) {
-    throw new Error('Không tìm thấy công ty.');
+    const error = new Error('Không tìm thấy công ty.');
+    error.status = 400;
+    throw error;
   }
 
   const newMentor = company.accounts.id(newMentorId);
   const oldMentor = company.accounts.id(oldMentorId);
 
   if (!newMentor || newMentor.role !== 'mentor') {
-    throw new Error('Mentor mới không hợp lệ.');
+    const error = new Error('Mentor mới không hợp lệ.');
+    error.status = 400;
+    throw error;
   }
 
   if (!oldMentor || oldMentor.role !== 'mentor') {
-    throw new Error('Mentor cũ không hợp lệ.');
+    const error = new Error('Mentor cũ không hợp lệ.');
+    error.status = 400;
+    throw error;
   }
 
   this.mentor = newMentorId;
@@ -802,7 +849,9 @@ projectSchema.methods.changeMentor = async function (newMentorId, oldMentorId, c
 projectSchema.methods.removeStudentFromProject = async function (studentId, reason = 'removed') {
   const selectedApplicantIndex = this.selectedApplicants.findIndex(a => a.studentId.toString() === studentId.toString());
   if (selectedApplicantIndex === -1) {
-    throw new Error('Sinh viên không tồn tại trong danh sách được chọn');
+    const error = new Error('Sinh viên không tồn tại trong danh sách được chọn');
+    error.status = 400;
+    throw error;
   }
 
   // Xóa sinh viên khỏi danh sách selectedApplicants

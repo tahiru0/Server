@@ -12,7 +12,6 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('Decoded token:', decoded);
 
     let user;
     if (decoded.model === 'Company' || decoded.model === 'School') {

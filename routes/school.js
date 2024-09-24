@@ -2,7 +2,7 @@ import express from 'express';
 import Student from '../models/Student.js';
 import School from '../models/School.js';
 import authenticate from '../middlewares/authenticate.js';
-import { useImageUpload, useExcelUpload } from '../utils/upload.js';
+import { useRegistrationImageUpload, useExcelUpload } from '../utils/upload.js';
 import { sendEmail } from '../utils/emailService.js';
 import { accountActivationTemplate, emailChangeConfirmationTemplate, passwordResetTemplate, newAccountCreatedTemplate } from '../utils/emailTemplates.js';
 import crypto from 'crypto';
@@ -14,15 +14,23 @@ import Major from '../models/Major.js';
 import axios from 'axios';
 import mongoose from 'mongoose';
 import { handleQuery } from '../utils/queryHelper.js';
+import { getSchoolDashboardData } from '../models/dashboard.js';
 import multer from 'multer';
 import xlsx from 'xlsx';
+import path from 'path';
+import fs from 'fs';
+
 
 
 const router = express.Router();
 
 const authenticateSchoolAdmin = authenticate(School, (decoded) => School.findSchoolAccountById(decoded, 'admin'));
 const authenticateSchoolAccount = authenticate(School, School.findSchoolAccountById);
-
+const createDirectory = (dir) => {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+};
 /**
  * @swagger
  * /api/school/approve-student/{studentId}:
@@ -81,7 +89,7 @@ router.post('/approve-student/:studentId', authenticateSchoolAdmin, async (req, 
     }
 });
 
-const upload = useImageUpload('logos', 'school');
+const upload = useRegistrationImageUpload('logos', 'school');
 
 /**
  * @swagger
@@ -119,29 +127,35 @@ router.post('/register', upload.single('logo'), async (req, res) => {
     const { name, address, accountName, email, password } = req.body;
 
     try {
-        const logoUrl = req.file ? `uploads/logos/school/${req.file.filename}` : null;
-
-        const activationToken = crypto.randomBytes(32).toString('hex');
-        const tokenExpiration = Date.now() + 3600000; // 1 giờ
-
         const newSchool = new School({
             name: name,
             address: address,
-            logo: logoUrl,
+            email: email,
             isActive: false,
             accounts: [{
                 name: accountName,
                 email: email,
                 password: password,
                 role: { name: 'admin' },
-                activationToken: activationToken,
-                tokenExpiration: tokenExpiration
+                activationToken: crypto.randomBytes(32).toString('hex'),
+                tokenExpiration: Date.now() + 3600000 // 1 giờ
             }]
         });
 
         await newSchool.save();
 
-        const activationLink = `http://localhost:5000/api/school/activate/${activationToken}`;
+        if (req.file) {
+            const fileExtension = path.extname(req.file.originalname);
+            const newFilename = `${newSchool._id}${fileExtension}`;
+            const finalDir = path.join('public', 'uploads', 'logos', 'school', newSchool._id.toString());
+            createDirectory(finalDir);
+            const finalPath = path.join(finalDir, newFilename);
+            fs.renameSync(req.file.path, finalPath);
+            newSchool.logo = `uploads/logos/school/${newSchool._id}/${newFilename}`;
+            await newSchool.save();
+        }
+
+        const activationLink = `${process.env.API_URL}/api/school/activate/${newSchool.accounts[0].activationToken}`;
         await sendEmail(
             email,
             'Xác nhận tài khoản trường học của bạn',
@@ -154,8 +168,12 @@ router.post('/register', upload.single('logo'), async (req, res) => {
 
         res.status(201).json({
             message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
+            schoolId: newSchool._id
         });
     } catch (error) {
+        if (req.file) {
+            fs.unlinkSync(req.file.path);
+        }
         const { status, message } = handleError(error);
         res.status(status).json({ message });
     }
@@ -1475,6 +1493,33 @@ router.get('/majors', authenticateSchoolAccount, async (req, res) => {
         }));
 
         res.status(200).json(formattedMajors);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+/**
+ * @swagger
+ * /api/school/dashboard:
+ *   get:
+ *     summary: Lấy dữ liệu dashboard cho trường học
+ *     tags: [School]
+ *     security:
+ *       - schoolAdminBearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dữ liệu dashboard
+ *       401:
+ *         description: Không có quyền truy cập
+ *       404:
+ *         description: Không tìm thấy trường học
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/dashboard', authenticateSchoolAccount, async (req, res) => {
+    try {
+        const schoolId = req.user.school;
+        const dashboardData = await getSchoolDashboardData(schoolId);
+        res.status(200).json(dashboardData);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

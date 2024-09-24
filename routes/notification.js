@@ -180,11 +180,9 @@ router.get('/unread-count', authenticateUser, async (req, res) => {
       query.recipientRole = req.user.role.name;
     }
 
-    console.log('Unread count query:', query);
 
     const count = await Notification.countDocuments(query);
 
-    console.log('Unread count result:', count);
 
     const unreadCount = count > 99 ? '99+' : count.toString();
 
@@ -217,8 +215,6 @@ router.patch('/:id/restore', authenticateUser, async (req, res) => {
 });
 
 router.get('/stream', authenticateUser, async (req, res) => {
-  console.log('User accessing stream:', req.user);
-  console.log('UserModel:', req.userModel);
   notificationStream.subscribe(req, res);
 });
 
@@ -315,14 +311,11 @@ router.get('/unread', authenticateUser, async (req, res) => {
       query.parentId = req.user.companyId || req.user.schoolId;
     }
 
-    console.log('Query:', query);
 
     const notifications = await Notification.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
-
-    console.log('Notifications:', notifications);
 
     const total = await Notification.countDocuments(query);
 

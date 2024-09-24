@@ -265,6 +265,11 @@ const CompanySchema = new Schema({
     tokenExpiration: { type: Date },
 }, { timestamps: true });
 
+CompanySchema.path('logo').get(function (value) {
+    if (!value) return null;
+    return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
+});
+
 // Thêm middleware để xử lý cập nhật
 CompanySchema.pre('findOneAndUpdate', function(next) {
     const update = this.getUpdate();
@@ -282,15 +287,6 @@ CompanySchema.pre('findOneAndUpdate', function(next) {
     next();
 });
 
-// Getter cho trường logo
-CompanySchema.path('logo').get(function (value) {
-    if (!value) return null;
-    return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
-});
-
-// Đảm bảo rằng các thuộc tính ảo được bao gồm khi chuyển đổi sang JSON
-CompanySchema.set('toJSON', { getters: true });
-CompanySchema.set('toObject', { getters: true });
 
 CompanySchema.methods.softDelete = function () {
     this.isDeleted = true;
@@ -456,6 +452,9 @@ CompanySchema.pre('validate', function(next) {
     next();
 });
 
+// Đảm bảo rằng các thuộc tính ảo được bao gồm khi chuyển đổi sang JSON
+CompanySchema.set('toJSON', { getters: true });
+CompanySchema.set('toObject', { getters: true });
 // Đảm bảo export model ở cuối file
 const Company = mongoose.model('Company', CompanySchema);
 export default Company;

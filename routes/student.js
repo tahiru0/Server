@@ -399,7 +399,7 @@ router.get('/applied-projects', authenticateStudent, async (req, res) => {
       description: project.description,
       company: {
         name: project.company.name,
-        logo: project.company.logo ? `http://localhost:5000${project.company.logo}` : null,
+        logo: project.company.logo ? (project.company.logo.startsWith('http') ? project.company.logo : `http://localhost:5000${project.company.logo}`) : null,
         _id: project.company._id
       },
       status: project.status,

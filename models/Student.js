@@ -68,6 +68,7 @@ const StudentSchema = new Schema({
     },
     phoneNumber: {
         type: String,
+        trim: true,
         maxlength: [15, 'Số điện thoại không được vượt quá 15 ký tự'],
         validate: {
             validator: function (v) {

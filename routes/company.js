@@ -1,8 +1,10 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import authenticate from '../middlewares/authenticate.js';
 import Company from '../models/Company.js';
 import Project from '../models/Project.js';
-import { useImageUpload } from '../utils/upload.js';
+import { getCompanyDashboardData } from '../models/dashboard.js';
+import { useRegistrationImageUpload } from '../utils/upload.js';
 import { sendEmail } from '../utils/emailService.js';
 import { accountActivationTemplate, emailChangeConfirmationTemplate, passwordResetTemplate, newAccountCreatedTemplate } from '../utils/emailTemplates.js';
 import crypto from 'crypto';
@@ -15,6 +17,8 @@ import { encrypt, decrypt } from '../utils/encryption.js';
 import { emailChangeLimiter } from '../utils/rateLimiter.js';
 import Major from '../models/Major.js';
 import Skill from '../models/Skill.js';
+import fs from 'fs';
+import path from 'path';
 
 const router = express.Router();
 
@@ -24,13 +28,18 @@ const limiter = rateLimit({
     max: 10,
     message: 'Thao tác quá nhiều lần, vui lòng thử lại sau.',
 });
+const createDirectory = (dir) => {
+  if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+  }
+};
 
 // Helper functions
 const findCompanyAccountById = async (decoded) => {
     return await Company.findCompanyAccountById(decoded);
 };
 
-const upload = useImageUpload('logos', 'company');
+const upload = useRegistrationImageUpload('logos', 'company');
 
 // Middleware xác thực cho admin công ty
 const authenticateCompanyAdmin = authenticate(Company, findCompanyAccountById, 'admin');
@@ -64,12 +73,21 @@ const authenticateCompanyAccount = authenticate(Company, findCompanyAccountById)
  *                     type: string
  *     description: "Yêu cầu: Tài khoản Company"
  */
-router.get('/companies', authenticateCompanyAccount, async (req, res) => {
+router.get('/companies', authenticateCompanyAccount, async (req, res, next) => {
     try {
         const companies = await Company.find({}, 'id name logo');
-        res.status(200).json(companies);
+        const companiesWithProjectCount = await Promise.all(companies.map(async (company) => {
+            const projectCount = await Project.countDocuments({ company: company._id });
+            return {
+                id: company._id,
+                name: company.name,
+                logo: company.logo,
+                projectCount: projectCount
+            };
+        }));
+        res.status(200).json(companiesWithProjectCount);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        next(error);
     }
 });
 
@@ -105,34 +123,41 @@ router.get('/companies', authenticateCompanyAccount, async (req, res) => {
  *       400:
  *         description: Lỗi dữ liệu đầu vào
  */
-router.post('/register', upload.single('logo'), async (req, res) => {
+router.post('/register', upload.single('logo'), async (req, res, next) => {
   const { address, accountName, email, password, companyName } = req.body;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
-      const logoUrl = req.file ? `uploads/logos/company/${req.file.filename}` : null;
-
-      const activationToken = crypto.randomBytes(32).toString('hex');
-      const tokenExpiration = Date.now() + 3600000; // 1 hour
-
       const newCompany = new Company({
           name: companyName,
           address: address,
-          logo: logoUrl,
-          email: email, // Thêm email cho công ty
+          email: email,
           isActive: false,
           accounts: [{
               name: accountName,
               email: email,
-              password: password, // Sử dụng trường ảo password
+              password: password,
               role: 'admin',
-              activationToken: activationToken,
-              tokenExpiration: tokenExpiration
+              activationToken: crypto.randomBytes(32).toString('hex'),
+              tokenExpiration: Date.now() + 3600000 // 1 giờ
           }]
       });
 
-      await newCompany.save();
+      await newCompany.save({ session });
 
-      const activationLink = `${process.env.API_URL}/api/company/activate/${activationToken}`;
+      if (req.file) {
+          const fileExtension = path.extname(req.file.originalname);
+          const newFilename = `${newCompany._id}${fileExtension}`;
+          const finalDir = path.join('public', 'uploads', 'logos', 'company', newCompany._id.toString());
+          createDirectory(finalDir);
+          const finalPath = path.join(finalDir, newFilename);
+          fs.renameSync(req.file.path, finalPath);
+          newCompany.logo = `uploads/logos/company/${newCompany._id}/${newFilename}`;
+          await newCompany.save({ session });
+      }
+
+      const activationLink = `${process.env.API_URL}/api/company/activate/${newCompany.accounts[0].activationToken}`;
       await sendEmail(
           email,
           'Xác nhận tài khoản của bạn',
@@ -143,13 +168,21 @@ router.post('/register', upload.single('logo'), async (req, res) => {
           })
       );
 
+      await session.commitTransaction();
+      session.endSession();
+
       res.status(201).json({
           message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
-          companyId: newCompany._id // Thêm ID của công ty vào phản hồi
+          companyId: newCompany._id
       });
   } catch (error) {
-      const { status, message } = handleError(error);
-      res.status(status).json({ message });
+      await session.abortTransaction();
+      session.endSession();
+
+      if (req.file) {
+          fs.unlinkSync(req.file.path);
+      }
+      next(error);
   }
 });
 
@@ -169,7 +202,7 @@ router.post('/register', upload.single('logo'), async (req, res) => {
  *       302:
  *         description: Chuyển hướng đến trang đăng nhập
  */
-router.get('/activate/:token', async (req, res) => {
+router.get('/activate/:token', async (req, res, next) => {
     const { token } = req.params;
 
     try {
@@ -194,7 +227,7 @@ router.get('/activate/:token', async (req, res) => {
         const loginToken = jwt.sign({ companyId: company._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
         res.redirect(`http://localhost:3000/company/login?token=${loginToken}&message=${encodeURIComponent('Xác thực tài khoản thành công, vui lòng đăng nhập để tiếp tục.')}`);
     } catch (error) {
-        res.redirect(`http://localhost:3000/company/login?error=${encodeURIComponent(error.message)}`);
+        next(error);
     }
 });
 
@@ -226,7 +259,7 @@ router.get('/activate/:token', async (req, res) => {
  */
 router.post('/check-email', limiter, 
     body('email').isEmail().withMessage('Vui lòng nhập email hợp lệ.'),
-    async (req, res) => {
+    async (req, res, next) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ errors: errors.array() });
@@ -238,8 +271,7 @@ router.post('/check-email', limiter,
             const existingCompany = await Company.exists({ "accounts.email": email });
             return res.status(200).json({ exists: !!existingCompany });
         } catch (error) {
-            console.error('Error checking email:', error); 
-            return res.status(500).json({ message: 'Đã xảy ra lỗi khi kiểm tra email.' });
+            next(error);
         }
     }
 );
@@ -259,7 +291,7 @@ router.post('/check-email', limiter,
  *         description: Không tìm thấy công ty
  *     description: "Yêu cầu: Tài khoản Company"
  */
-router.get('/me', authenticateCompanyAccount, async (req, res) => {
+router.get('/me', authenticateCompanyAccount, async (req, res, next) => {
     try {
         const user = req.user;
         const company = await Company.findById(user.company).select('-accounts');
@@ -288,7 +320,7 @@ router.get('/me', authenticateCompanyAccount, async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        next(error);
     }
 });
 
@@ -310,7 +342,7 @@ router.get('/me', authenticateCompanyAccount, async (req, res) => {
  *     security:
  *       - companyBearerAuth: []
  */
-router.get('/confirm-email-change', async (req, res) => {
+router.get('/confirm-email-change', async (req, res, next) => {
   const { data } = req.query;
 
   try {
@@ -345,7 +377,7 @@ router.get('/confirm-email-change', async (req, res) => {
 
       res.redirect(`http://localhost:3000/company/personal?token=${loginToken}&message=${encodeURIComponent('Email đã được xác nhận và cập nhật thành công.')}`);
   } catch (error) {
-      res.redirect(`http://localhost:3000/company/personal?error=${encodeURIComponent('Đã xảy ra lỗi khi xác nhận email.')}`);
+      next(error);
   }
 });
 
@@ -380,7 +412,7 @@ router.get('/confirm-email-change', async (req, res) => {
  *                     type: boolean
  *     description: "Yêu cầu: Tài khoản Company"
  */
-router.get('/accounts', authenticateCompanyAccount, async (req, res) => {
+router.get('/accounts', authenticateCompanyAccount, async (req, res, next) => {
   try {
       const accounts = await Company.getFilteredAccounts(req.user.company, req.query);
 
@@ -406,8 +438,7 @@ router.get('/accounts', authenticateCompanyAccount, async (req, res) => {
 
       res.status(200).json(response);
   } catch (error) {
-      console.error('Error in /accounts route:', error);
-      res.status(500).json({ message: 'Lỗi máy chủ.', error: error.message });
+      next(error);
   }
 });
 
@@ -441,7 +472,7 @@ router.get('/accounts', authenticateCompanyAccount, async (req, res) => {
  *         description: Lỗi dữ liệu đầu vào
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.post('/accounts', authenticateCompanyAdmin, async (req, res) => {
+router.post('/accounts', authenticateCompanyAdmin, async (req, res, next) => {
     try {
         const companyId = req.user.companyId; // Thông tin công ty từ middleware
         const { name, email, password, role } = req.body;
@@ -490,9 +521,7 @@ router.post('/accounts', authenticateCompanyAdmin, async (req, res) => {
 
         res.status(201).json({ message: 'Tài khoản đã được tạo thành công.', account: newAccount });
       } catch (error) {
-        console.error('Error creating account:', error);
-        const { status, message } = handleError(error);
-        res.status(status).json({ message });
+        next(error);
     }
 });
 
@@ -534,7 +563,7 @@ router.post('/accounts', authenticateCompanyAdmin, async (req, res) => {
  *         description: Tài khoản không tồn tại
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.put('/accounts/:id', authenticateCompanyAdmin, async (req, res) => {
+router.put('/accounts/:id', authenticateCompanyAdmin, async (req, res, next) => {
   try {
       const companyId = req.user.companyId; // Lấy companyId từ request
       if (!companyId) {
@@ -586,8 +615,7 @@ router.put('/accounts/:id', authenticateCompanyAdmin, async (req, res) => {
           }
       });
   } catch (error) {
-      console.error('Error updating account:', error);
-      res.status(500).json({ message: 'Lỗi máy chủ.', error: error.message });
+      next(error);
   }
 });
 
@@ -614,7 +642,7 @@ router.put('/accounts/:id', authenticateCompanyAdmin, async (req, res) => {
  *         description: Tài khoản không tồn tại
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.patch('/accounts/:id/toggle-active', authenticateCompanyAdmin, async (req, res) => {
+router.patch('/accounts/:id/toggle-active', authenticateCompanyAdmin, async (req, res, next) => {
     try {
       const companyId = req.user.companyId;
       const { id } = req.params;
@@ -651,8 +679,7 @@ router.patch('/accounts/:id/toggle-active', authenticateCompanyAdmin, async (req
         }
       });
     } catch (error) {
-      console.error('Error toggling account active status:', error);
-      res.status(500).json({ message: 'Lỗi máy chủ.', error: error.message });
+      next(error);
     }
   });
 
@@ -677,7 +704,7 @@ router.patch('/accounts/:id/toggle-active', authenticateCompanyAdmin, async (req
  *         description: Tài khoản không tồn tại
  *     description: "Yêu cầu: Tài khoản Company"
  */
-router.delete('/accounts/:id', authenticateCompanyAdmin, async (req, res) => {
+router.delete('/accounts/:id', authenticateCompanyAdmin, async (req, res, next) => {
   try {
       const company = await Company.findById(req.user.company); // Thông tin công ty từ middleware
       const { id } = req.params;
@@ -702,8 +729,7 @@ router.delete('/accounts/:id', authenticateCompanyAdmin, async (req, res) => {
 
       res.status(200).json({ message: 'Tài khoản đã bị xóa mềm.', account });
   } catch (error) {
-      console.error('Error deleting account:', error);
-      res.status(500).json({ message: 'Lỗi máy chủ.', error: error.message });
+      next(error);
   }
 });
 
@@ -1018,7 +1044,7 @@ router.patch('/projects/:id/status', authenticateCompanyAdmin, async (req, res, 
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Company"
  */
-router.get('/student-profile/:studentId', authenticateCompanyAccount, async (req, res) => {
+router.get('/student-profile/:studentId', authenticateCompanyAccount, async (req, res, next) => {
     try {
       const student = await Student.findById(req.params.studentId)
         .populate('projects')
@@ -1028,14 +1054,10 @@ router.get('/student-profile/:studentId', authenticateCompanyAccount, async (req
       }
       res.json(student);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      next(error);
     }
   });
   
-const errorHandler = (err, req, res, next) => {
-  const { status, message } = handleError(err);
-  res.status(status).json({ message });
-};
 
 
 /**
@@ -1084,7 +1106,7 @@ const errorHandler = (err, req, res, next) => {
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Company"
  */
-router.get('/projects', authenticateCompanyAccount, async (req, res) => {
+router.get('/projects', authenticateCompanyAccount, async (req, res, next) => {
   try {
     const { page = 1, limit = 10, search = '', status, isRecruiting } = req.query;
     const companyId = req.user.companyId;
@@ -1106,18 +1128,18 @@ router.get('/projects', authenticateCompanyAccount, async (req, res) => {
 
     res.json(projects);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
 // Tìm kiếm sinh viên
-router.get('/search/students', authenticateCompanyAccount, async (req, res) => {
+router.get('/search/students', authenticateCompanyAccount, async (req, res, next) => {
   try {
     const { query, skills, major } = req.query;
     const students = await Student.searchStudents(query, { skills, major });
     res.json(students);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
@@ -1186,7 +1208,7 @@ router.put('/account', authenticateCompanyAccount,
   body('email').optional({ nullable: true, checkFalsy: true }).isEmail().withMessage('Email không hợp lệ'),
   body('address').optional({ nullable: true, checkFalsy: true }).isLength({ min: 5, max: 500 }).withMessage('Địa chỉ phải có từ 5 đến 500 ký tự'),
   emailChangeLimiter, // Thêm limiter vào đây
-  async (req, res) => {
+  async (req, res, next) => {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
           return res.status(400).json({ errors: errors.array() });
@@ -1269,7 +1291,7 @@ router.put('/account', authenticateCompanyAccount,
           if (error.name === 'ValidationError') {
               errorMessage = Object.values(error.errors).map(err => err.message).join(', ');
           }
-          res.status(500).json({ message: errorMessage });
+          next(error);
       }
   }
 );
@@ -1279,7 +1301,7 @@ router.put('/company-info', authenticateCompanyAdmin,
   body('name').optional().isLength({ min: 2, max: 200 }).withMessage('Tên công ty phải có từ 2 đến 200 ký tự'),
   body('email').optional().isEmail().withMessage('Email công ty không hợp lệ'),
   body('address').optional().isLength({ min: 5, max: 500 }).withMessage('Địa chỉ công ty phải có từ 5 đến 500 ký tự'),
-  async (req, res) => {
+  async (req, res, next) => {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
           return res.status(400).json({ errors: errors.array() });
@@ -1323,8 +1345,7 @@ router.put('/company-info', authenticateCompanyAdmin,
               }
           });
       } catch (error) {
-          const { status, message } = handleError(error);
-          res.status(status).json({ message });
+          next(error);
       }
   }
 );
@@ -1354,7 +1375,7 @@ router.put('/company-info', authenticateCompanyAdmin,
  *         description: Lỗi máy chủ
  */
 // Route để yêu cầu reset mật khẩu
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', async (req, res, next) => {
   try {
       const { email } = req.body;
       const company = await Company.findOne({ 'accounts.email': email });
@@ -1383,7 +1404,7 @@ router.post('/forgot-password', async (req, res) => {
       res.status(200).json({ message: 'Token đặt lại mật khẩu đã được gửi đến email của bạn.' });
   } catch (error) {
       console.error('Lỗi khi gửi email đặt lại mật khẩu:', error);
-      res.status(500).json({ message: 'Đã xảy ra lỗi khi gửi email đặt lại mật khẩu.' });
+      next(error);
   }
 });
 
@@ -1420,7 +1441,7 @@ router.post('/forgot-password', async (req, res) => {
  */
 
 // Route để reset mật khẩu
-router.post('/reset-password/:token', async (req, res) => {
+router.post('/reset-password/:token', async (req, res, next) => {
   try {
       const { token } = req.params;
       const { password } = req.body;
@@ -1453,7 +1474,7 @@ router.post('/reset-password/:token', async (req, res) => {
 
       res.status(200).json({ message: 'Mật khẩu đã được đặt lại thành công.' });
   } catch (error) {
-      res.status(500).json({ message: 'Đã xảy ra lỗi khi đặt lại mật khẩu.' });
+      next(error);
   }
 });
 
@@ -1485,7 +1506,7 @@ router.post('/reset-password/:token', async (req, res) => {
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.get('/mentors', authenticateCompanyAccount, async (req, res) => {
+router.get('/mentors', authenticateCompanyAccount, async (req, res, next) => {
   try {
     const companyId = req.user.companyId;
     if (!companyId) {
@@ -1507,7 +1528,7 @@ router.get('/mentors', authenticateCompanyAccount, async (req, res) => {
 
     res.json(mentors);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
   /**
@@ -1548,7 +1569,7 @@ router.get('/mentors', authenticateCompanyAccount, async (req, res) => {
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.patch('/projects/:id/change-mentor', authenticateCompanyAdmin, async (req, res) => {
+router.patch('/projects/:id/change-mentor', authenticateCompanyAdmin, async (req, res, next) => {
   const { newMentorId, oldMentorId } = req.body;
 
   try {
@@ -1563,7 +1584,7 @@ router.patch('/projects/:id/change-mentor', authenticateCompanyAdmin, async (req
     res.status(200).json({ message: 'Mentor đã được thay đổi thành công' });
   } catch (error) {
     console.error('Error changing mentor:', error);
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 /**
@@ -1611,7 +1632,7 @@ router.patch('/projects/:id/change-mentor', authenticateCompanyAdmin, async (req
  *         description: Lỗi server
  *     description: "Yêu cầu: Tài khoản Admin Company"
  */
-router.get('/mentors/:id', authenticateCompanyAccount, async (req, res) => {
+router.get('/mentors/:id', authenticateCompanyAccount, async (req, res, next) => {
   try {
     const companyId = req.user.companyId;
     if (!companyId) {
@@ -1632,17 +1653,97 @@ router.get('/mentors/:id', authenticateCompanyAccount, async (req, res) => {
     const projects = await Project.find({ mentor: mentor._id, company: companyId })
       .select('_id title status');
 
+    // Xử lý avatar
+    let avatar = mentor.avatar;
+    if (avatar && !avatar.startsWith('http')) {
+      avatar = `http://localhost:5000/${avatar.replace(/^\/+/, '')}`;
+    }
+
     res.json({
       _id: mentor._id,
       name: mentor.name,
       email: mentor.email,
       role: mentor.role,
+      avatar: avatar,
       projects: projects
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.use(errorHandler);
+/**
+ * @swagger
+ * /api/company/dashboard:
+ *   get:
+ *     summary: Lấy dữ liệu bảng điều khiển của công ty
+ *     tags: [Companies]
+ *     security:
+ *       - companyBearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dữ liệu bảng điều khiển thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 companyInfo:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     logo:
+ *                       type: string
+ *                     mentorCount:
+ *                       type: number
+ *                 projectStats:
+ *                   type: object
+ *                   properties:
+ *                     totalProjects:
+ *                       type: number
+ *                     recruitingProjects:
+ *                       type: number
+ *                     ongoingProjects:
+ *                       type: number
+ *                     completedProjects:
+ *                       type: number
+ *                     totalSelectedStudents:
+ *                       type: number
+ *                 taskStats:
+ *                   type: object
+ *                   properties:
+ *                     totalTasks:
+ *                       type: number
+ *                     pendingTasks:
+ *                       type: number
+ *                     inProgressTasks:
+ *                       type: number
+ *                     completedTasks:
+ *                       type: number
+ *                     overdueTasks:
+ *                       type: number
+ *                     avgRating:
+ *                       type: number
+ *       401:
+ *         description: Không được ủy quyền
+ *       500:
+ *         description: Lỗi máy chủ
+ *     description: "Yêu cầu: Tài khoản Admin Company"
+ */
+router.get('/dashboard', authenticateCompanyAdmin, async (req, res, next) => {
+  try {
+    const dashboardData = await getCompanyDashboardData(req.user.companyId);
+    res.json(dashboardData);
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+  router.use((err, req, res, next) => {
+  const { status, message } = handleError(err);
+  res.status(status).json({ message });
+});
+
 export default router;

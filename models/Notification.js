@@ -201,7 +201,6 @@ notificationSchema.statics.insert = async function(notificationData) {
     });
 
     await notification.save();
-    console.log('Notification saved:', notification);
     notificationStream.sendNotification(notification);
     return notification;
   } catch (error) {

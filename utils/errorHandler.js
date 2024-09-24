@@ -27,6 +27,10 @@ export const handleError = (error) => {
     console.error('Lỗi:', error);
     logErrorToFile(error);
 
+    if (error.status === 400) {
+        return { status: 400, message: error.message };
+    }
+
     if (error.message.includes('Cast to ObjectId failed')) {
         const match = error.message.match(/path "(\w+)"/);
         const field = match ? match[1] : 'Trường';

@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import bcrypt from 'bcrypt';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,75 +21,48 @@ const __dirname = dirname(__filename);
 const router = express.Router();
 
 const realMajors = [
-    'Khoa học Máy tính', 'Quản trị Kinh doanh', 'Kỹ thuật Cơ khí', 
-    'Kỹ thuật Điện', 'Kỹ thuật Xây dựng', 'Sinh học', 'Hóa học', 
-    'Vật lý', 'Toán học', 'Kinh tế học', 'Tâm lý học', 'Xã hội học', 
-    'Khoa học Chính trị', 'Lịch sử', 'Văn học Anh', 'Trí tuệ Nhân tạo',
-    'Khoa học Dữ liệu', 'An ninh Mạng', 'Thiết kế Đồ họa', 'Marketing Số',
-    'Công nghệ Nano', 'Kỹ thuật Y Sinh', 'Khoa học Môi trường', 'Năng lượng Tái tạo',
-    'Quản lý Chuỗi Cung ứng', 'Khoa học Thần kinh', 'Robotics', 'Khoa học Vũ trụ',
-    'Công nghệ Thực phẩm', 'Quản lý Dự án'
+  'Khoa học Máy tính', 'Quản trị Kinh doanh', 'Kỹ thuật Cơ khí',
+  'Kỹ thuật Điện', 'Kỹ thuật Xây dựng', 'Sinh học', 'Hóa học',
+  'Vật lý', 'Toán học', 'Kinh tế học', 'Tâm lý học', 'Xã hội học',
+  'Khoa học Chính trị', 'Lịch sử', 'Văn học Anh', 'Trí tuệ Nhân tạo',
+  'Khoa học Dữ liệu', 'An ninh Mạng', 'Thiết kế Đồ họa', 'Marketing Số',
+  'Công nghệ Nano', 'Kỹ thuật Y Sinh', 'Khoa học Môi trường', 'Năng lượng Tái tạo',
+  'Quản lý Chuỗi Cung ứng', 'Khoa học Thần kinh', 'Robotics', 'Khoa học Vũ trụ',
+  'Công nghệ Thực phẩm', 'Quản lý Dự án'
 ];
 
 const realSkills = [
-    'JavaScript', 'Python', 'Java', 'C++', 'Quản lý Dự án', 
-    'Phân tích Dữ liệu', 'Học máy', 'Giao tiếp', 'Làm việc nhóm', 
-    'Giải quyết vấn đề', 'Tư duy phản biện', 'Lãnh đạo', 'Quản lý thời gian', 
-    'Sáng tạo', 'Thích ứng', 'React', 'Node.js', 'Angular', 'Vue.js',
-    'Docker', 'Kubernetes', 'AWS', 'Azure', 'Google Cloud', 'DevOps',
-    'CI/CD', 'Blockchain', 'IoT', 'AR/VR', 'Cybersecurity', 'UI/UX Design',
-    'SEO', 'Content Marketing', 'Data Visualization', 'Big Data',
-    'NoSQL', 'GraphQL', 'Agile Methodologies', 'Scrum', 'TensorFlow',
-    'Natural Language Processing', 'Computer Vision', 'Ethical Hacking'
+  'JavaScript', 'Python', 'Java', 'C++', 'Quản lý Dự án',
+  'Phân tích Dữ liệu', 'Học máy', 'Giao tiếp', 'Làm việc nhóm',
+  'Giải quyết vấn đề', 'Tư duy phản biện', 'Lãnh đạo', 'Quản lý thời gian',
+  'Sáng tạo', 'Thích ứng', 'React', 'Node.js', 'Angular', 'Vue.js',
+  'Docker', 'Kubernetes', 'AWS', 'Azure', 'Google Cloud', 'DevOps',
+  'CI/CD', 'Blockchain', 'IoT', 'AR/VR', 'Cybersecurity', 'UI/UX Design',
+  'SEO', 'Content Marketing', 'Data Visualization', 'Big Data',
+  'NoSQL', 'GraphQL', 'Agile Methodologies', 'Scrum', 'TensorFlow',
+  'Natural Language Processing', 'Computer Vision', 'Ethical Hacking'
 ];
 
-const createDirectory = (dir) => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-};
-
-const downloadImage = async (url, filepath) => {
-    const response = await axios({
-        url,
-        responseType: 'stream',
-    });
-    return new Promise((resolve, reject) => {
-        response.data.pipe(fs.createWriteStream(filepath))
-            .on('finish', () => resolve())
-            .on('error', e => reject(e));
-    });
-};
-
-const getRandomSquareImage = (size = 300) => {
-    return `https://picsum.photos/${size}`;
-};
-
-const getRelatedSkills = (major, skills, numSkills = 3) => {
-    const relatedSkills = skills.filter(skill => 
-        skill.name.toLowerCase().includes(major.name.toLowerCase()) ||
-        major.name.toLowerCase().includes(skill.name.toLowerCase())
-    );
-    if (relatedSkills.length < numSkills) {
-        const additionalSkills = faker.helpers.arrayElements(
-            skills.filter(s => !relatedSkills.includes(s)),
-            numSkills - relatedSkills.length
-        );
-        relatedSkills.push(...additionalSkills);
-    }
-    return faker.helpers.arrayElements(relatedSkills, numSkills);
-};
+function generateLogoUrl(id) {
+  const style = 'identicon'; // Hoặc 'jdenticon' cho kiểu logo khác
+  return `https://api.dicebear.com/6.x/${style}/svg?seed=${id}`;
+}
+function generateAvatarUrl() {
+  const style = faker.helpers.arrayElement(['adventurer', 'avataaars', 'big-ears', 'bottts', 'croodles', 'fun-emoji', 'icons', 'identicon', 'initials', 'lorelei', 'micah', 'miniavs', 'open-peeps', 'personas', 'pixel-art']);
+  const seed = faker.string.alphanumeric(10);
+  return `https://api.dicebear.com/6.x/${style}/svg?seed=${seed}`;
+}
 
 /**
  * @swagger
- * /api/fake-data:
+ * /api/fake-data/create-skills:
  *   post:
- *     summary: Tạo dữ liệu giả cho hệ thống
- *     description: Tạo dữ liệu giả cho các mô hình Major, Skill, School, Company, Student, Project và Task
- *     tags: [FakeData]
+ *     summary: Tạo kỹ năng ngẫu nhiên
+ *     description: Tạo các kỹ năng ngẫu nhiên
+ *     tags: [Fake-Data]
  *     responses:
- *       201:
- *         description: Dữ liệu giả đã được chèn thành công
+ *       200:
+ *         description: Kỹ năng ngẫu nhiên đã được tạo thành công
  *         content:
  *           application/json:
  *             schema:
@@ -96,9 +70,9 @@ const getRelatedSkills = (major, skills, numSkills = 3) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Dữ liệu giả đã được chèn thành công.
+ *                   example: Kỹ năng ngẫu nhiên đã được tạo thành công.
  *       500:
- *         description: Lỗi server khi chèn dữ liệu giả
+ *         description: Đã xảy ra lỗi khi tạo kỹ năng ngẫu nhiên
  *         content:
  *           application/json:
  *             schema:
@@ -106,272 +80,533 @@ const getRelatedSkills = (major, skills, numSkills = 3) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Đã xảy ra lỗi khi chèn dữ liệu giả.
+ *                   example: Đã xảy ra lỗi khi tạo kỹ năng ngẫu nhiên.
  *                 error:
  *                   type: string
  */
-router.post('/', async (req, res) => {
+router.post('/create-skills', async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // Tạo dữ liệu giả cho các mô hình khác nhau
-    const skills = await createSkills(session);
-    const majors = await createMajors(session);
-    const schools = await createSchools(session);
-    const companies = await createCompanies(session);
-    const students = await createStudents(session, schools, majors, skills);
-    await createProjects(session, companies, students, majors, skills);
+    for (let i = 0; i < 10; i++) {
+      const skill = new Skill({
+        name: faker.hacker.noun(),
+        description: faker.hacker.phrase(),
+      });
+
+      await skill.save({ session });
+    }
 
     await session.commitTransaction();
-    res.status(200).json({ message: 'Dữ liệu giả đã được tạo thành công' });
+    res.status(200).json({ message: 'Kỹ năng ngẫu nhiên đã được tạo thành công' });
   } catch (error) {
-    console.error('Lỗi khi tạo dữ liệu giả:', error);
-    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo dữ liệu giả', error: error.message });
+    console.error('Lỗi khi tạo kỹ năng ngẫu nhiên:', error);
+    await session.abortTransaction();
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo kỹ năng ngẫu nhiên', error: error.message });
   } finally {
     session.endSession();
   }
 });
 
-async function createSkills(session) {
-  try {
-    const skills = await Promise.all(realSkills.map(async (skillName) => {
-      let skill = await Skill.findOne({ name: skillName }).session(session);
-      if (!skill) {
-        skill = new Skill({
-          name: skillName,
-          description: faker.lorem.sentence()
-        });
-        await skill.save({ session });
-      }
-      return skill;
-    }));
-    return skills;
-  } catch (error) {
-    console.error('Lỗi khi tạo skills:', error);
-    return []; // Trả về mảng rỗng nếu có lỗi
-  }
-}
+/**
+ * @swagger
+ * /api/fake-data/create-majors:
+ *   post:
+ *     summary: Tạo ngành học ngẫu nhiên
+ *     description: Tạo các ngành học ngẫu nhiên
+ *     tags: [Fake-Data]
+ *     responses:
+ *       200:
+ *         description: Ngành học ngẫu nhiên đã được tạo thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Ngành học ngẫu nhiên đã được tạo thành công.
+ *       500:
+ *         description: Đã xảy ra lỗi khi tạo ngành học ngẫu nhiên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Đã xảy ra lỗi khi tạo ngành học ngẫu nhiên.
+ *                 error:
+ *                   type: string
+ */
+router.post('/create-majors', async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-async function createMajors(session) {
   try {
-    const majors = await Promise.all(realMajors.map(async (majorName) => {
-      let major = await Major.findOne({ name: majorName }).session(session);
-      if (!major) {
-        major = new Major({
+    const existingMajors = await Major.find({}, 'name');
+    const existingMajorNames = new Set(existingMajors.map(major => major.name));
+    const createdMajors = new Set();
+
+    while (createdMajors.size < 10) {
+      const majorName = faker.helpers.arrayElement(realMajors);
+      if (!existingMajorNames.has(majorName) && !createdMajors.has(majorName)) {
+        const major = new Major({
           name: majorName,
-          description: faker.lorem.sentence()
+          description: faker.lorem.sentence(),
         });
+
         await major.save({ session });
+        createdMajors.add(majorName);
       }
-      return major;
-    }));
-    return majors;
+    }
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Ngành học ngẫu nhiên đã được tạo thành công' });
   } catch (error) {
-    console.error('Lỗi khi tạo majors:', error);
-    return []; // Trả về mảng rỗng nếu có lỗi
+    console.error('Lỗi khi tạo ngành học ngẫu nhiên:', error);
+    await session.abortTransaction();
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo ngành học ngẫu nhiên', error: error.message });
+  } finally {
+    session.endSession();
   }
-}
+});
+/**
+ * @swagger
+ * /api/fake-data/create-companies:
+ *   post:
+ *     summary: Tạo công ty ngẫu nhiên
+ *     description: Tạo 5 công ty với 1 tài khoản admin và 5 tài khoản mentor cho mỗi công ty
+ *     tags: [Fake-Data]
+ *     responses:
+ *       200:
+ *         description: Công ty ngẫu nhiên đã được tạo thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Công ty ngẫu nhiên đã được tạo thành công.
+ *       500:
+ *         description: Đã xảy ra lỗi khi tạo công ty ngẫu nhiên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Đã xảy ra lỗi khi tạo công ty ngẫu nhiên.
+ *                 error:
+ *                   type: string
+ */
+router.post('/create-companies', async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-async function createSchools(session) {
   try {
-    const schools = await Promise.all(Array(5).fill().map(async () => {
-      const school = new School({
-        name: faker.company.name() + ' University',
-        address: faker.location.streetAddress(),
-        isActive: true,
-        accounts: [{
-          name: faker.person.fullName(),
-          email: faker.internet.email(),
-          password: '123456',
-          role: { name: 'admin' },
-          isActive: true
-        }]
-      });
-
-      // Tải logo hình vuông ngẫu nhiên cho School
-      const logoUrl = getRandomSquareImage();
-      const logoDir = path.join(__dirname, '..', 'public', 'uploads', 'schools');
-      createDirectory(logoDir);
-      const logoPath = path.join(logoDir, `${school._id}.jpg`);
-      await downloadImage(logoUrl, logoPath);
-      school.logo = `/uploads/schools/${school._id}.jpg`;
-
-      await school.save({ session });
-
-      // Tạo thêm các tài khoản phụ cho School
-      for (let j = 0; j < 5; j++) {
-        school.accounts.push({
-          name: faker.person.fullName(),
-          email: faker.internet.email(),
-          password: '123456',
-          role: { name: faker.helpers.arrayElement(['sub-admin', 'department-head', 'faculty-head']) },
-          isActive: true
-        });
-      }
-      await school.save({ session });
-      return school;
-    }));
-    return schools;
-  } catch (error) {
-    console.error('Lỗi khi tạo schools:', error);
-    return []; // Trả về mảng rỗng nếu có lỗi
-  }
-}
-
-async function createCompanies(session) {
-  try {
-    const companies = await Promise.all(Array(2).fill().map(async () => {
+    for (let i = 0; i < 5; i++) {
       const company = new Company({
         name: faker.company.name(),
+        email: faker.internet.email(),
         address: faker.location.streetAddress(),
-        isActive: true,
-        accounts: [{
-          name: faker.person.fullName(),
-          email: faker.internet.email(),
-          password: '123456',
-          role: 'admin',
-          isActive: true
-        }]
+        logo: generateLogoUrl(faker.string.uuid()),
+        isActive: faker.datatype.boolean(),
+        accounts: [
+          {
+            name: faker.name.fullName(),
+            email: faker.internet.email(),
+            password: '123456',
+            role: 'admin',
+            avatar: generateAvatarUrl(),
+          },
+          ...Array.from({ length: 5 }).map(() => ({
+            name: faker.name.fullName(),
+            email: faker.internet.email(),
+            password: '123456',
+            role: 'mentor',
+            avatar: generateAvatarUrl(),
+          })),
+        ],
       });
 
-      // Tải logo hình vuông ngẫu nhiên cho Company
-      const logoUrl = getRandomSquareImage();
-      const logoDir = path.join(__dirname, '..', 'public', 'uploads', 'companies');
-      createDirectory(logoDir);
-      const logoPath = path.join(logoDir, `${company._id}.jpg`);
-      await downloadImage(logoUrl, logoPath);
-      company.logo = `/uploads/companies/${company._id}.jpg`;
-
       await company.save({ session });
+    }
 
-      // Tạo thêm các tài khoản mentor cho Company
-      for (let j = 0; j < 6; j++) {
-        company.accounts.push({
-          name: faker.person.fullName(),
-          email: faker.internet.email(),
-          password: '123456',
-          role: 'mentor',
-          isActive: true
-        });
-      }
-      await company.save({ session });
-      return company;
-    }));
-    return companies;
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Công ty ngẫu nhiên đã được tạo thành công' });
   } catch (error) {
-    console.error('Lỗi khi tạo companies:', error);
-    return []; // Trả về mảng rỗng nếu có lỗi
+    console.error('Lỗi khi tạo công ty ngẫu nhiên:', error);
+    await session.abortTransaction();
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo công ty ngẫu nhiên', error: error.message });
+  } finally {
+    session.endSession();
   }
-}
+});
 
-async function createStudents(session, schools, majors, skills) {
+/**
+ * @swagger
+ * /api/fake-data/create-schools:
+ *   post:
+ *     summary: Tạo trường học ngẫu nhiên
+ *     description: Tạo 5 trường học với 1 tài khoản admin và 5 tài khoản với vai trò khoa ngành cho mỗi trường
+ *     tags: [Fake-Data]
+ *     responses:
+ *       200:
+ *         description: Trường học ngẫu nhiên đã được tạo thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Trường học ngẫu nhiên đã được tạo thành công.
+ *       500:
+ *         description: Đã xảy ra lỗi khi tạo trường học ngẫu nhiên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Đã xảy ra lỗi khi tạo trường học ngẫu nhiên.
+ *                 error:
+ *                   type: string
+ */
+router.post('/create-schools', async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const students = await Promise.all(Array(100).fill().map(async () => {
+    for (let i = 0; i < 5; i++) {
+      const school = new School({
+        name: faker.company.name(),
+        address: faker.location.streetAddress(),
+        website: faker.internet.url(),
+        establishedDate: faker.date.past(50),
+        logo: generateLogoUrl(faker.string.uuid()),
+        isActive: faker.datatype.boolean(),
+        accounts: [
+          {
+            name: faker.name.fullName(),
+            email: faker.internet.email(),
+            password: '123456',
+            role: { name: 'admin' },
+            avatar: generateAvatarUrl(),
+          },
+          ...Array.from({ length: 5 }).map(() => ({
+            name: faker.name.fullName(),
+            email: faker.internet.email(),
+            password: '123456',
+            role: {
+              name: faker.helpers.arrayElement(['department-head', 'faculty-head']),
+              department: faker.commerce.department()
+            },
+            avatar: generateAvatarUrl(),
+          })),
+        ],
+      });
+
+      for (const account of school.accounts) {
+        account.passwordHash = await bcrypt.hash(account.password, 12);
+      }
+
+      await school.save({ session });
+    }
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Trường học ngẫu nhiên đã được tạo thành công' });
+  } catch (error) {
+    console.error('Lỗi khi tạo trường học ngẫu nhiên:', error);
+    await session.abortTransaction();
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo trường học ngẫu nhiên', error: error.message });
+  } finally {
+    session.endSession();
+  }
+});
+
+/**
+ * @swagger
+ * /api/fake-data/create-students:
+ *   post:
+ *     summary: Tạo sinh viên ngẫu nhiên
+ *     description: Tạo các sinh viên ngẫu nhiên
+ *     tags: [Fake-Data]
+ *     responses:
+ *       200:
+ *         description: Sinh viên ngẫu nhiên đã được tạo thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Sinh viên ngẫu nhiên đã được tạo thành công.
+ *       500:
+ *         description: Đã xảy ra lỗi khi tạo sinh viên ngẫu nhiên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Đã xảy ra lỗi khi tạo sinh viên ngẫu nhiên.
+ *                 error:
+ *                   type: string
+ */
+router.post('/create-students', async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const schools = await School.find({ isActive: true }).session(session);
+    const majors = await Major.find().session(session);
+    const skills = await Skill.find().session(session);
+
+    for (let i = 0; i < 100; i++) {
       const school = faker.helpers.arrayElement(schools);
       const major = faker.helpers.arrayElement(majors);
-      const relatedSkills = getRelatedSkills(major, skills, 5);
+      const studentSkills = faker.helpers.arrayElements(skills, faker.number.int({ min: 1, max: 5 }));
 
       const student = new Student({
-        name: faker.person.fullName(),
+        name: faker.name.fullName(),
         email: faker.internet.email(),
         password: '123456',
-        studentId: faker.string.numeric(10),
+        studentId: faker.number.int({ min: 1000000000, max: 9999999999 }).toString(),
         school: school._id,
-        isApproved: true,
-        isActive: true,
-        dateOfBirth: faker.date.birthdate(),
-        gender: faker.helpers.arrayElement(['Nam', 'Nữ', 'Khác']),
-        phoneNumber: faker.phone.number('09######').replace(/\s+/g, ''), // Loại bỏ dấu cách
-        address: faker.location.streetAddress(),
         major: major._id,
-        skills: relatedSkills.map(skill => skill._id)
+        skills: studentSkills.map(skill => skill._id),
+        dateOfBirth: faker.date.past(20, new Date(2003, 0, 1)),
+        gender: faker.helpers.arrayElement(['Nam', 'Nữ', 'Khác']),
+        phoneNumber: faker.phone.number('0#########').replace(/\s+/g, ''),
+        address: faker.location.streetAddress(),
+        isApproved: faker.datatype.boolean(),
+        avatar: generateAvatarUrl(),
       });
+
+      student.passwordHash = await bcrypt.hash(student.password, 12);
       await student.save({ session });
-      return student;
-    }));
-    return students;
+    }
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Sinh viên ngẫu nhiên đã được tạo thành công' });
   } catch (error) {
-    console.error('Lỗi khi tạo students:', error);
-    return []; // Trả về mảng rỗng nếu có lỗi
+    console.error('Lỗi khi tạo sinh viên ngẫu nhiên:', error);
+    await session.abortTransaction();
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo sinh viên ngẫu nhiên', error: error.message });
+  } finally {
+    session.endSession();
   }
-}
+});
 
-async function createProjects(session, companies, students, majors, skills) {
+/**
+ * @swagger
+ * /api/fake-data/create-random-projects:
+ *   post:
+ *     summary: Tạo dự án ngẫu nhiên
+ *     description: Tạo các dự án ngẫu nhiên cho các công ty với các mentor và sinh viên được chọn ngẫu nhiên
+ *     tags: [Fake-Data]
+ *     responses:
+ *       200:
+ *         description: Dự án ngẫu nhiên đã được tạo thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Dự án ngẫu nhiên đã được tạo thành công.
+ *       500:
+ *         description: Đã xảy ra lỗi khi tạo dự án ngẫu nhiên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Đã xảy ra lỗi khi tạo dự án ngẫu nhiên.
+ *                 error:
+ *                   type: string
+ */
+router.post('/create-random-projects', async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    for (const company of companies) {
-      for (let i = 0; i < 5; i++) { // Mỗi công ty có 5 project
-        try {
-          const mentor = faker.helpers.arrayElement(company.accounts.filter(account => account.role === 'mentor'));
-          const major = faker.helpers.arrayElement(majors);
-          const relatedSkills = getRelatedSkills(major, skills, 5);
+    const companies = await Company.find({ isActive: true }).session(session);
+    const students = await Student.find().session(session);
+    const majors = await Major.find().session(session);
+    const skills = await Skill.find().session(session);
 
-          const applicants = [];
-          const selectedApplicants = [];
-          const usedStudentIds = new Set();
+    for (let i = 0; i < 100; i++) {
+      const company = faker.helpers.arrayElement(companies);
+      const mentors = company.accounts.filter(account => account.role === 'mentor' && account.isActive);
+      if (mentors.length === 0) continue; // Bỏ qua nếu công ty không có mentor
 
-          for (let j = 0; j < 10 && applicants.length < 10; j++) {
-            const student = faker.helpers.arrayElement(students.filter(s => 
-              s.major.toString() === major._id.toString() || 
-              s.skills.some(skill => relatedSkills.map(s => s._id.toString()).includes(skill.toString()))
-            ));
-            if (student && !usedStudentIds.has(student._id.toString())) {
-              applicants.push({ applicantId: student._id, appliedDate: new Date() });
-              usedStudentIds.add(student._id.toString());
+      const mentor = faker.helpers.arrayElement(mentors);
+      const major = faker.helpers.arrayElement(majors);
+      const relatedSkills = skills.filter(skill => skill.major && skill.major.toString() === major._id.toString());
 
-              if (selectedApplicants.length < 5) {
-                selectedApplicants.push({ studentId: student._id, appliedDate: new Date(), acceptedAt: new Date() });
-              }
-            }
+      const isRecruiting = faker.datatype.boolean();
+      const applicants = [];
+      const selectedApplicants = [];
+      const usedStudentIds = new Set();
+
+      const applicationStart = isRecruiting ? new Date() : undefined;
+      const applicationEnd = isRecruiting ? faker.date.soon(60, applicationStart) : undefined;
+
+      const project = new Project({
+        title: faker.commerce.productName(),
+        description: faker.lorem.paragraph(),
+        company: company._id,
+        mentor: mentor._id,
+        applicants: applicants,
+        selectedApplicants: selectedApplicants,
+        startDate: faker.date.recent(),
+        endDate: faker.date.future(),
+        status: 'Open',
+        requiredSkills: relatedSkills.map(skill => skill._id),
+        relatedMajors: [major._id],
+        objectives: faker.lorem.sentence(10),
+        isRecruiting: isRecruiting,
+        maxApplicants: isRecruiting ? faker.number.int({ min: 1, max: 10 }) : undefined,
+        applicationStart: applicationStart,
+        applicationEnd: applicationEnd
+      });
+
+      if (isRecruiting) {
+        // Lấy ngẫu nhiên 0-5 sinh viên từ DB và thêm vào applicants
+        const numApplicants = faker.number.int({ min: 0, max: 5 });
+        for (let j = 0; j < numApplicants; j++) {
+          const student = faker.helpers.arrayElement(students);
+          if (student && !usedStudentIds.has(student._id.toString())) {
+            applicants.push({ applicantId: student._id, appliedDate: new Date() });
+            usedStudentIds.add(student._id.toString());
           }
+        }
+      }
 
-          const project = new Project({
-            title: faker.commerce.productName(),
-            description: faker.lorem.paragraph(),
-            company: company._id,
-            mentor: mentor._id,
-            applicants: applicants,
-            selectedApplicants: selectedApplicants,
-            startDate: faker.date.recent(),
-            endDate: faker.date.future(),
-            status: 'Open',
-            requiredSkills: relatedSkills.map(skill => skill._id),
-            relatedMajors: [major._id],
-            objectives: faker.lorem.sentence(),
-            isRecruiting: faker.datatype.boolean() // Thêm trường isRecruiting
-          });
-          await project.save({ session });
+      // Lấy ngẫu nhiên 0-5 sinh viên từ DB và thêm vào selectedApplicants
+      const numSelectedApplicants = faker.number.int({ min: 0, max: 5 });
+      for (let j = 0; j < numSelectedApplicants; j++) {
+        const student = faker.helpers.arrayElement(students);
+        const isAlreadyApplicant = applicants.some(applicant => applicant.applicantId.toString() === student._id.toString());
+        const isAlreadySelected = await Project.findOne({
+          'selectedApplicants.studentId': student._id,
+          company: { $ne: company._id }
+        });
 
-          // Tạo task mới cho mỗi project và gán cho selectedApplicants
-          if (selectedApplicants.length > 0) {
-            const numTasks = faker.number.int({ min: 1, max: 3 });
-            for (let j = 0; j < numTasks; j++) {
-              const selectedApplicant = faker.helpers.arrayElement(selectedApplicants);
-              if (selectedApplicant && selectedApplicant.studentId) {
-                try {
-                  const task = new Task({
-                    name: faker.lorem.words(5),
-                    description: faker.lorem.paragraph(),
-                    deadline: faker.date.future(),
-                    project: project._id,
-                    assignedTo: selectedApplicant.studentId,
-                    status: faker.helpers.arrayElement(['Pending', 'In Progress', 'Completed', 'Overdue'])
-                  });
-                  await task.save({ session });
-                } catch (error) {
-                  console.error(`Lỗi khi tạo task cho project ${project._id}:`, error.message);
-                }
-              }
-            }
+        if (student && !usedStudentIds.has(student._id.toString()) && !isAlreadyApplicant && !isAlreadySelected) {
+          if (selectedApplicants.length < project.maxApplicants) {
+            selectedApplicants.push({ studentId: student._id, appliedDate: new Date(), acceptedAt: new Date() });
+            usedStudentIds.add(student._id.toString());
+            student.currentProject = project._id;
+            await student.save({ session });
+          } else {
+            break; // Dừng vòng lặp nếu đã đạt đến số lượng ứng viên tối đa
           }
-        } catch (error) {
-          console.error(`Lỗi khi tạo project cho company ${company._id}:`, error.message);
+        }
+      }
+      project.applicants = applicants;
+      project.selectedApplicants = selectedApplicants;
+
+      await project.save({ session });
+    }
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Dự án ngẫu nhiên đã được tạo thành công' });
+  } catch (error) {
+    console.error('Lỗi khi tạo dự án ngẫu nhiên:', error);
+    await session.abortTransaction();
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo dự án ngẫu nhiên', error: error.message });
+  } finally {
+    session.endSession();
+  }
+});
+
+/**
+ * @swagger
+ * /api/fake-data/create-tasks:
+ *   post:
+ *     summary: Tạo công việc ngẫu nhiên
+ *     description: Tạo các công việc ngẫu nhiên cho các sinh viên (selectedApplicants) trong các dự án
+ *     tags: [Fake-Data]
+ *     responses:
+ *       200:
+ *         description: Công việc ngẫu nhiên đã được tạo thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Công việc ngẫu nhiên đã được tạo thành công.
+ *       500:
+ *         description: Đã xảy ra lỗi khi tạo công việc ngẫu nhiên
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Đã xảy ra lỗi khi tạo công việc ngẫu nhiên.
+ *                 error:
+ *                   type: string
+ */
+router.post('/create-tasks', async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const projects = await Project.find().populate('selectedApplicants.studentId').session(session);
+
+    let totalTasks = 100;
+    while (totalTasks > 0) {
+      for (const project of projects) {
+        if (project.selectedApplicants.length === 0) {
+          continue; // Bỏ qua nếu không có selectedApplicants
+        }
+
+        const selectedApplicant = faker.helpers.arrayElement(project.selectedApplicants);
+
+        const task = new Task({
+          name: faker.hacker.verb() + ' ' + faker.hacker.noun(),
+          description: faker.hacker.phrase(),
+          deadline: faker.date.future(),
+          status: faker.helpers.arrayElement(['Pending', 'In Progress', 'Completed', 'Overdue']),
+          project: project._id,
+          assignedTo: selectedApplicant.studentId._id,
+        });
+
+        await task.save({ session });
+        totalTasks--;
+
+        if (totalTasks <= 0) {
+          break;
         }
       }
     }
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Công việc ngẫu nhiên đã được tạo thành công' });
   } catch (error) {
-    console.error('Lỗi khi tạo projects:', error);
+    console.error('Lỗi khi tạo công việc ngẫu nhiên:', error);
+    await session.abortTransaction();
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo công việc ngẫu nhiên', error: error.message });
+  } finally {
+    session.endSession();
   }
-}
+});
 
 export default router;

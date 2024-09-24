@@ -11,7 +11,7 @@ const skillSchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'Tên kỹ năng không được để trống'],
-    unique: true,
+    unique: [true, 'Tên kỹ năng đã tồn tại'],
     trim: true,
     maxlength: [50, 'Tên kỹ năng không được vượt quá 50 ký tự'],
     set: (value) => sanitizeHtml(value, sanitizeOptions),

@@ -181,38 +181,38 @@ const loginCompany = async (req, res) => {
   let loginSuccess = false;
   try {
     if (!companyId || companyId.trim() === '') {
-      throw new Error('ID công ty không hợp lệ.');
+      return res.status(400).json({ message: 'ID công ty không hợp lệ.' });
     }
 
     if (!email || email.trim() === '') {
-      throw new Error('Email không được để trống.');
+      return res.status(400).json({ message: 'Email không được để trống.' });
     }
 
     if (!password || password.trim() === '') {
-      throw new Error('Mật khẩu không được để trống.');
+      return res.status(400).json({ message: 'Mật khẩu không được để trống.' });
     }
 
     const company = await Company.findById(companyId);
     if (!company) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     if (company.isDeleted || !company.isActive) {
-      throw new Error('Tài khoản công ty đang được xử lý, vui lòng thử lại sau.');
+      return res.status(400).json({ message: 'Tài khoản công ty đang được xử lý, vui lòng thử lại sau.' });
     }
 
     const account = company.accounts.find(acc => acc.email === email && !acc.isDeleted);
     if (!account) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     if (!account.isActive) {
-      throw new Error('Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.');
+      return res.status(400).json({ message: 'Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, account.passwordHash);
     if (!isPasswordValid) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     const ipAddress = req.ip;
@@ -280,38 +280,38 @@ const loginSchool = async (req, res) => {
   let loginSuccess = false;
   try {
     if (!schoolId || schoolId.trim() === '') {
-      throw new Error('ID trường học không hợp lệ.');
+      return res.status(400).json({ message: 'ID trường học không hợp lệ.' });
     }
 
     if (!email || email.trim() === '') {
-      throw new Error('Email không được để trống.');
+      return res.status(400).json({ message: 'Email không được để trống.' });
     }
 
     if (!password || password.trim() === '') {
-      throw new Error('Mật khẩu không được để trống.');
+      return res.status(400).json({ message: 'Mật khẩu không được để trống.' });
     }
 
     const school = await School.findById(schoolId);
     if (!school) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     if (school.isDeleted || !school.isActive) {
-      throw new Error('Tài khoản trường học đang được xử lý, vui lòng thử lại sau.');
+      return res.status(400).json({ message: 'Tài khoản trường học đang được xử lý, vui lòng thử lại sau.' });
     }
 
     const account = school.accounts.find(acc => acc.email === email && !acc.isDeleted);
     if (!account) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     if (!account.isActive) {
-      throw new Error('Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.');
+      return res.status(400).json({ message: 'Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, account.passwordHash);
     if (!isPasswordValid) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     const ipAddress = req.ip;
@@ -384,31 +384,31 @@ const loginStudent = async (req, res) => {
     const { schoolId, studentId, password } = req.body;
 
     if (!schoolId || schoolId.trim() === '') {
-      throw new Error('ID trường không hợp lệ.');
+      return res.status(400).json({ message: 'ID trường không hợp lệ.' });
     }
 
     if (!studentId || studentId.trim() === '') {
-      throw new Error('ID sinh viên không được để trống.');
+      return res.status(400).json({ message: 'ID sinh viên không được để trống.' });
     }
 
     if (!password || password.trim() === '') {
-      throw new Error('Mật khẩu không được để trống.');
+      return res.status(400).json({ message: 'Mật khẩu không được để trống.' });
     }
 
     const student = await Student.findBySchoolAndStudentId(schoolId, studentId);
     console.log(`Result of finding student: ${student}`);
 
     if (!student) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     if (!student.isApproved) {
-      throw new Error('Tài khoản chưa được phê duyệt, hãy liên hệ trường của bạn.');
+      return res.status(400).json({ message: 'Tài khoản chưa được phê duyệt, hãy liên hệ trường của bạn.' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, student.passwordHash);
     if (!isPasswordValid) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     const ipAddress = req.ip;

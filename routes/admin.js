@@ -2,10 +2,12 @@ import mongoose from 'mongoose';
 import express from 'express';
 import dotenv from 'dotenv-safe';
 import Company from '../models/Company.js';
+import Project from '../models/Project.js';
 import { sendEmail, restoreEmail } from '../utils/emailService.js';
 import Email from '../models/Email.js';
 import EmailTemplate from '../models/EmailTemplate.js';
 import School from '../models/School.js';
+import { getAdminDashboardData } from '../models/dashboard.js';
 import { filterSearchSort, applyFilters, applySearch, applySorting } from '../utils/filterSearchSort.js';
 import { handleError } from '../utils/errorHandler.js';
 import multer from 'multer';
@@ -70,7 +72,14 @@ router.get('/companies', authenticateAdmin, async (req, res, next) => {
       populateFields: ['accounts'],
       select: '-accounts.password'
     });
-    res.status(200).json(result);
+
+    // Lấy thêm projectCount cho mỗi công ty
+    const companiesWithProjectCount = await Promise.all(result.data.map(async (company) => {
+      const projectCount = await Project.countDocuments({ company: company._id });
+      return { ...company.toObject(), projectCount };
+    }));
+
+    res.status(200).json({ ...result, data: companiesWithProjectCount });
   } catch (error) {
     next(error);
   }
@@ -181,6 +190,23 @@ router.get('/schools', authenticateAdmin, async (req, res, next) => {
       populateFields: ['accounts'],
       select: '-accounts.password'
     });
+
+    // Lấy số lượng sinh viên cho mỗi trường
+    const schoolIds = result.data.map(school => school._id);
+    const studentCounts = await Student.aggregate([
+      { $match: { school: { $in: schoolIds }, isDeleted: false } },
+      { $group: { _id: '$school', count: { $sum: 1 } } }
+    ]);
+
+    // Thêm số lượng sinh viên vào kết quả
+    result.data = result.data.map(school => {
+      const studentCount = studentCounts.find(count => count._id.toString() === school._id.toString());
+      return {
+        ...school.toObject(),
+        studentCount: studentCount ? studentCount.count : 0
+      };
+    });
+
     res.status(200).json(result);
   } catch (error) {
     next(error);
@@ -736,6 +762,56 @@ router.post('/send-fake-notification', authenticateAdmin, async (req, res) => {
   } catch (error) {
     console.error('Lỗi khi gửi thông báo giả:', error);
     res.status(500).json({ message: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/dashboard:
+ *   get:
+ *     summary: Lấy dữ liệu dashboard cho admin
+ *     tags: [Admin]
+ *     security:
+ *       - adminBearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Ngày bắt đầu cho dữ liệu dashboard
+ *       - in: query
+ *         name: endDate
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Ngày kết thúc cho dữ liệu dashboard
+ *     responses:
+ *       200:
+ *         description: Dữ liệu dashboard thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminDashboardData'
+ *       400:
+ *         description: Thiếu ngày bắt đầu hoặc kết thúc
+ *       401:
+ *         description: Không được phép truy cập
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/dashboard', authenticateAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate, timeUnit } = req.query;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ message: 'Vui lòng cung cấp ngày bắt đầu và kết thúc' });
+    }
+    const dashboardData = await getAdminDashboardData(startDate, endDate, timeUnit);
+    res.json(dashboardData);
+  } catch (error) {
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi lấy dữ liệu dashboard', error: error.message });
   }
 });
 

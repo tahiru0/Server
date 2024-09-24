@@ -11,7 +11,7 @@ const majorSchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'Tên ngành học không được để trống'],
-    unique: true,
+    unique: [true, 'Tên ngành học đã tồn tại'],
     trim: true,
     maxlength: [100, 'Tên ngành học không được vượt quá 100 ký tự'],
     minlength: [2, 'Tên ngành học phải có ít nhất 2 ký tự'],

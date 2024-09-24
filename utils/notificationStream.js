@@ -6,7 +6,6 @@ class NotificationStream {
   }
 
   sendNotification(notification) {
-    console.log('Sending notification:', notification);
     this.emitter.emit('notification', notification);
   }
 

@@ -36,11 +36,37 @@ export const sendEmail = async (to, subject, htmlContent, type = 'sent') => {
         await email.save();
         return { success: true, message: 'Email sent successfully' };
     } catch (error) {
-        console.error('Error sending email:', error);
-        // Lưu email vào database với trạng thái lỗi
-        const email = new Email({ to, subject, htmlContent, type, status: 'failed', error: error.message });
-        await email.save();
-        return { success: false, message: 'Failed to send email', error: error.message };
+        console.error('Error sending email with primary credentials:', error);
+
+        // Cấu hình lại transporter với EMAIL_USER2 và EMAIL_PASS2
+        const transporter2 = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 587,
+            secure: false,
+            auth: {
+                user: process.env.EMAIL_USER2,
+                pass: process.env.EMAIL_PASS2,
+            },
+            tls: {
+                ciphers: 'SSLv3'
+            }
+        });
+
+        try {
+            let info = await transporter2.sendMail(mailOptions);
+            console.log('Email sent with secondary credentials:', info.response);
+
+            // Lưu email vào database với trường type
+            const email = new Email({ to, subject, htmlContent, type });
+            await email.save();
+            return { success: true, message: 'Email sent successfully with secondary credentials' };
+        } catch (error) {
+            console.error('Error sending email with secondary credentials:', error);
+            // Lưu email vào database với trạng thái lỗi
+            const email = new Email({ to, subject, htmlContent, type, status: 'failed', error: error.message });
+            await email.save();
+            return { success: false, message: 'Failed to send email with both primary and secondary credentials', error: error.message };
+        }
     }
 };
 
