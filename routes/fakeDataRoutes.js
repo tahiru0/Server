@@ -43,8 +43,111 @@ const realSkills = [
   'Natural Language Processing', 'Computer Vision', 'Ethical Hacking'
 ];
 
+const realUniversities = [
+  {
+    name: 'Đại học Quốc gia Hà Nội',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/c/c6/Logo_Đại_học_Quốc_gia_Hà_Nội.svg/1200px-Logo_Đại_học_Quốc_gia_Hà_Nội.svg.png',
+    website: 'https://www.vnu.edu.vn'
+  },
+  {
+    name: 'Đại học Quốc gia Thành phố Hồ Chí Minh',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/3/3b/Logo_Đại_học_Quốc_gia_TP.HCM.svg/1200px-Logo_Đại_học_Quốc_gia_TP.HCM.svg.png',
+    website: 'https://vnuhcm.edu.vn'
+  },
+  {
+    name: 'Đại học Thái Nguyên',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/5/5e/Logo_Đại_học_Thái_Nguyên.svg/1200px-Logo_Đại_học_Thái_Nguyên.svg.png',
+    website: 'https://www.tnu.edu.vn'
+  },
+  {
+    name: 'Đại học Huế',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/4/47/Logo_Đại_học_Huế.svg/1200px-Logo_Đại_học_Huế.svg.png',
+    website: 'https://www.hueuni.edu.vn'
+  },
+  {
+    name: 'Đại học Đà Nẵng',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/b/bf/Logo_Đại_học_Đà_Nẵng.svg/1200px-Logo_Đại_học_Đà_Nẵng.svg.png',
+    website: 'https://www.udn.vn'
+  },
+  {
+    name: 'Đại học Bách khoa Hà Nội',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/a/a6/Logo_Đại_học_Bách_khoa_Hà_Nội.svg/1200px-Logo_Đại_học_Bách_khoa_Hà_Nội.svg.png',
+    website: 'https://www.hust.edu.vn'
+  },
+  {
+    name: 'Đại học Kinh tế Thành phố Hồ Chí Minh',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/9/9c/Logo_Đại_học_Kinh_tế_TP.HCM.svg/1200px-Logo_Đại_học_Kinh_tế_TP.HCM.svg.png',
+    website: 'https://www.ueh.edu.vn'
+  },
+  {
+    name: 'Đại học Sư phạm Hà Nội',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/5/5e/Logo_Đại_học_Sư_phạm_Hà_Nội.svg/1200px-Logo_Đại_học_Sư_phạm_Hà_Nội.svg.png',
+    website: 'http://hnue.edu.vn'
+  },
+  {
+    name: 'Đại học Y Hà Nội',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/f/fd/Logo_Đại_học_Y_Hà_Nội.svg/1200px-Logo_Đại_học_Y_Hà_Nội.svg.png',
+    website: 'https://www.hmu.edu.vn'
+  },
+  {
+    name: 'Đại học Ngoại thương',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/0/00/Logo_Đại_học_Ngoại_thương.svg/1200px-Logo_Đại_học_Ngoại_thương.svg.png',
+    website: 'https://www.ftu.edu.vn'
+  },
+  {
+    name: 'Đại học Nguyễn Tất Thành',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/1/1b/Logo_Trường_Đại_học_Nguyễn_Tất_Thành.svg/1200px-Logo_Trường_Đại_học_Nguyễn_Tất_Thành.svg.png',
+    website: 'https://www.ntt.edu.vn'
+  },
+  {
+    name: 'Đại học Cần Thơ',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/e/e3/Logo_Đại_học_Cần_Thơ.svg/1200px-Logo_Đại_học_Cần_Thơ.svg.png',
+    website: 'https://www.ctu.edu.vn'
+  },
+  {
+    name: 'Đại học Kinh tế Quốc dân',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/9/9a/Logo_Đại_học_Kinh_tế_Quốc_dân.svg/1200px-Logo_Đại_học_Kinh_tế_Quốc_dân.svg.png',
+    website: 'https://www.neu.edu.vn'
+  },
+  {
+    name: 'Đại học Công nghiệp Hà Nội',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/e/ea/Logo_Đại_học_Công_nghiệp_Hà_Nội.svg/1200px-Logo_Đại_học_Công_nghiệp_Hà_Nội.svg.png',
+    website: 'https://www.haui.edu.vn'
+  },
+  {
+    name: 'Đại học Mở Thành phố Hồ Chí Minh',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/d/d7/Logo_Trường_Đại_học_Mở_Thành_phố_Hồ_Chí_Minh.svg/1200px-Logo_Trường_Đại_học_Mở_Thành_phố_Hồ_Chí_Minh.svg.png',
+    website: 'https://ou.edu.vn'
+  },
+  {
+    name: 'Đại học Tôn Đức Thắng',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/2/2c/Logo_Đại_học_Tôn_Đức_Thắng.png/1200px-Logo_Đại_học_Tôn_Đức_Thắng.png',
+    website: 'https://www.tdtu.edu.vn'
+  },
+  {
+    name: 'Đại học Sư phạm Kỹ thuật Thành phố Hồ Chí Minh',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/1/1b/Logo_Trường_Đại_học_Sư_phạm_Kỹ_thuật_Thành_phố_Hồ_Chí_Minh.svg/1200px-Logo_Trường_Đại_học_Sư_phạm_Kỹ_thuật_Thành_phố_Hồ_Chí_Minh.svg.png',
+    website: 'https://hcmute.edu.vn'
+  },
+  {
+    name: 'Đại học Công nghệ Thông tin',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/9/99/Logo_Trường_Đại_học_Công_nghệ_Thông_tin_-_Đại_học_Quốc_gia_TP.HCM.svg/1200px-Logo_Trường_Đại_học_Công_nghệ_Thông_tin_-_Đại_học_Quốc_gia_TP.HCM.svg.png',
+    website: 'https://www.uit.edu.vn'
+  },
+  {
+    name: 'Đại học Văn Lang',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/6/6a/Logo_Trường_Đại_học_Văn_Lang.svg/1200px-Logo_Trường_Đại_học_Văn_Lang.svg.png',
+    website: 'https://www.vanlanguni.edu.vn'
+  },
+  {
+    name: 'Đại học Hoa Sen',
+    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/f/f7/Logo_Trường_Đại_học_Hoa_Sen.svg/1200px-Logo_Trường_Đại_học_Hoa_Sen.svg.png',
+    website: 'https://www.hoasen.edu.vn'
+  }
+];
+
 function generateLogoUrl(id) {
-  const style = 'identicon'; // Hoặc 'jdenticon' cho kiểu logo khác
+  const style = 'icons'; // Hoặc 'jdenticon' cho kiểu logo khác
   return `https://api.dicebear.com/6.x/${style}/svg?seed=${id}`;
 }
 function generateAvatarUrl() {
@@ -251,12 +354,12 @@ router.post('/create-companies', async (req, res) => {
  * @swagger
  * /api/fake-data/create-schools:
  *   post:
- *     summary: Tạo trường học ngẫu nhiên
- *     description: Tạo 5 trường học với 1 tài khoản admin và 5 tài khoản với vai trò khoa ngành cho mỗi trường
+ *     summary: Tạo trường học thật
+ *     description: Tạo các trường đại học thật với logo thật, 1 tài khoản admin và 5 tài khoản với vai trò khoa ngành cho mỗi trường
  *     tags: [Fake-Data]
  *     responses:
  *       200:
- *         description: Trường học ngẫu nhiên đã được tạo thành công
+ *         description: Trường học đã được tạo thành công
  *         content:
  *           application/json:
  *             schema:
@@ -264,9 +367,9 @@ router.post('/create-companies', async (req, res) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Trường học ngẫu nhiên đã được tạo thành công.
+ *                   example: Trường học đã được tạo thành công.
  *       500:
- *         description: Đã xảy ra lỗi khi tạo trường học ngẫu nhiên
+ *         description: Đã xảy ra lỗi khi tạo trường học
  *         content:
  *           application/json:
  *             schema:
@@ -274,7 +377,7 @@ router.post('/create-companies', async (req, res) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Đã xảy ra lỗi khi tạo trường học ngẫu nhiên.
+ *                   example: Đã xảy ra lỗi khi tạo trường học.
  *                 error:
  *                   type: string
  */
@@ -283,24 +386,24 @@ router.post('/create-schools', async (req, res) => {
   session.startTransaction();
 
   try {
-    for (let i = 0; i < 5; i++) {
+    for (const university of realUniversities) {
       const school = new School({
-        name: faker.company.name(),
+        name: university.name,
         address: faker.location.streetAddress(),
-        website: faker.internet.url(),
-        establishedDate: faker.date.past(50),
-        logo: generateLogoUrl(faker.string.uuid()),
-        isActive: faker.datatype.boolean(),
+        website: university.website,
+        establishedDate: faker.date.past(100),
+        logo: university.logo,
+        isActive: true,
         accounts: [
           {
-            name: faker.name.fullName(),
-            email: faker.internet.email(),
+            name: faker.person.fullName(),
+            email: `admin@${new URL(university.website).hostname}`,
             password: '123456',
             role: { name: 'admin' },
             avatar: generateAvatarUrl(),
           },
           ...Array.from({ length: 5 }).map(() => ({
-            name: faker.name.fullName(),
+            name: faker.person.fullName(),
             email: faker.internet.email(),
             password: '123456',
             role: {
@@ -320,11 +423,11 @@ router.post('/create-schools', async (req, res) => {
     }
 
     await session.commitTransaction();
-    res.status(200).json({ message: 'Trường học ngẫu nhiên đã được tạo thành công' });
+    res.status(200).json({ message: 'Trường học đã được tạo thành công' });
   } catch (error) {
-    console.error('Lỗi khi tạo trường học ngẫu nhiên:', error);
+    console.error('Lỗi khi tạo trường học:', error);
     await session.abortTransaction();
-    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo trường học ngẫu nhiên', error: error.message });
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo trường học', error: error.message });
   } finally {
     session.endSession();
   }
@@ -474,7 +577,7 @@ router.post('/create-random-projects', async (req, res) => {
         startDate: faker.date.recent(),
         endDate: faker.date.future(),
         status: 'Open',
-        requiredSkills: relatedSkills.map(skill => skill._id),
+        requiredSkills: faker.helpers.arrayElements(relatedSkills, { min: 1, max: 5 }).map(skill => skill._id),
         relatedMajors: [major._id],
         objectives: faker.lorem.sentence(10),
         isRecruiting: isRecruiting,
@@ -583,7 +686,7 @@ router.post('/create-tasks', async (req, res) => {
         const task = new Task({
           name: faker.hacker.verb() + ' ' + faker.hacker.noun(),
           description: faker.hacker.phrase(),
-          deadline: faker.date.future(),
+          deadline: faker.date.soon(7),
           status: faker.helpers.arrayElement(['Pending', 'In Progress', 'Completed', 'Overdue']),
           project: project._id,
           assignedTo: selectedApplicant.studentId._id,

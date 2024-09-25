@@ -124,65 +124,66 @@ router.get('/companies', authenticateCompanyAccount, async (req, res, next) => {
  *         description: Lỗi dữ liệu đầu vào
  */
 router.post('/register', upload.single('logo'), async (req, res, next) => {
-  const { address, accountName, email, password, companyName } = req.body;
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-      const newCompany = new Company({
-          name: companyName,
-          address: address,
-          email: email,
-          isActive: false,
-          accounts: [{
-              name: accountName,
-              email: email,
-              password: password,
-              role: 'admin',
-              activationToken: crypto.randomBytes(32).toString('hex'),
-              tokenExpiration: Date.now() + 3600000 // 1 giờ
-          }]
-      });
+    const { address, accountName, email, password, companyName } = req.body;
 
+    const newCompany = new Company({
+      name: companyName,
+      address: address,
+      email: email,
+      isActive: false,
+      accounts: [{
+        name: accountName,
+        email: email,
+        password: password,
+        role: 'admin',
+        activationToken: crypto.randomBytes(32).toString('hex'),
+        tokenExpiration: Date.now() + 3600000 // 1 giờ
+      }]
+    });
+
+    await newCompany.save({ session });
+
+    if (req.file) {
+      const fileExtension = path.extname(req.file.originalname);
+      const newFilename = `${newCompany._id}${fileExtension}`;
+      const finalDir = path.join('public', 'uploads', 'logos', 'company', newCompany._id.toString());
+      createDirectory(finalDir);
+      const finalPath = path.join(finalDir, newFilename);
+      fs.renameSync(req.file.path, finalPath);
+      newCompany.logo = `uploads/logos/company/${newCompany._id}/${newFilename}`;
       await newCompany.save({ session });
+    }
 
-      if (req.file) {
-          const fileExtension = path.extname(req.file.originalname);
-          const newFilename = `${newCompany._id}${fileExtension}`;
-          const finalDir = path.join('public', 'uploads', 'logos', 'company', newCompany._id.toString());
-          createDirectory(finalDir);
-          const finalPath = path.join(finalDir, newFilename);
-          fs.renameSync(req.file.path, finalPath);
-          newCompany.logo = `uploads/logos/company/${newCompany._id}/${newFilename}`;
-          await newCompany.save({ session });
-      }
+    const activationLink = `${process.env.API_URL}/api/company/activate/${newCompany.accounts[0].activationToken}`;
+    await sendEmail(
+      email,
+      'Xác nhận tài khoản của bạn',
+      accountActivationTemplate({
+        accountName: accountName,
+        companyName: companyName,
+        activationLink: activationLink
+      })
+    );
 
-      const activationLink = `${process.env.API_URL}/api/company/activate/${newCompany.accounts[0].activationToken}`;
-      await sendEmail(
-          email,
-          'Xác nhận tài khoản của bạn',
-          accountActivationTemplate({
-              accountName: accountName,
-              companyName: companyName,
-              activationLink: activationLink
-          })
-      );
+    await session.commitTransaction();
+    session.endSession();
 
-      await session.commitTransaction();
-      session.endSession();
-
-      res.status(201).json({
-          message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
-          companyId: newCompany._id
-      });
+    res.status(201).json({
+      message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
+      companyId: newCompany._id
+    });
   } catch (error) {
-      await session.abortTransaction();
-      session.endSession();
+    await session.abortTransaction();
+    session.endSession();
 
-      if (req.file) {
-          fs.unlinkSync(req.file.path);
-      }
-      next(error);
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
+    next(error);
   }
 });
 

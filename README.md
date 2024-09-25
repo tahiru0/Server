@@ -47,6 +47,8 @@ Dự án Thực Tập Doanh Nghiệp Số Tech One là một nền tảng quản
    SESSION_SECRET=your_session_secret_key
    EMAIL_USER=your_email@example.com
    EMAIL_PASS=your_email_password
+   EMAIL_USER2=your_email2@example.com
+   EMAIL_PASS2=your_email2_password
    SENDER_NAME=Tech One Internship
    SALT_ROUNDS=10
    ```
@@ -66,13 +68,6 @@ Dự án Thực Tập Doanh Nghiệp Số Tech One là một nền tảng quản
 Tài liệu API có sẵn thông qua Swagger UI. Sau khi khởi động server, truy cập:
 http://localhost:5000/api-docs
 
-## 📄 Bản quyền và Giấy phép
-
-© 2024 Tech One. Bảo lưu mọi quyền.
-
-Dự án này được bảo vệ bởi luật bản quyền. Nghiêm cấm sao chép, phân phối hoặc sử dụng cho mục đích thương mại mà không có sự cho phép rõ ràng bằng văn bản từ chủ sở hữu.
-
-Logo và các tài sản hình ảnh khác là tài sản độc quyền của Tech One và không được sử dụng mà không có sự cho phép.
 
 ## 📞 Liên hệ
 

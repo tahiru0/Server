@@ -1,5 +1,6 @@
 import express from 'express';
-import authenticate from '../middlewares/authenticate.js';
+import jwt from 'jsonwebtoken';
+import { generateTokens } from '../utils/authUtils.js';
 import Notification from '../models/Notification.js';
 import Company from '../models/Company.js';
 import Student from '../models/Student.js';
@@ -8,17 +9,30 @@ import notificationStream from '../utils/notificationStream.js';
 
 const router = express.Router();
 
-const findUserById = async (decoded) => {
-  if (decoded.role === 'student') {
-    return await Student.findById(decoded._id);
-  } else if (decoded.model === 'SchoolAccount') {
-    return await School.findSchoolAccountById(decoded);
-  } else if (decoded.model === 'CompanyAccount') {
-    return await Company.findCompanyAccountById(decoded);
+const verifyToken = (token) => {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch (error) {
+    return null;
   }
 };
 
-const authenticateUser = authenticate(null, findUserById);
+const authenticateUser = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ message: 'Không tìm thấy token xác thực' });
+  }
+
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    return res.status(401).json({ message: 'Token không hợp lệ hoặc đã hết hạn' });
+  }
+
+  req.user = decoded;
+  req.userModel = decoded.model;
+
+  next();
+};
 
 router.get('/', authenticateUser, async (req, res) => {
   try {

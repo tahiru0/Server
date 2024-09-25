@@ -298,6 +298,12 @@ projectSchema.methods.addApplicant = async function (applicantId) {
     error.status = 400;
     throw error;
   }
+  if (!student.isApproved) {
+    throw new Error('Sinh viên chưa được phê duyệt');
+  }
+  if (this.applicants.some(a => a.applicantId.toString() === applicantId.toString())) {
+    throw new Error('Sinh viên đã ứng tuyển dự án này');
+  }
 
   if (student.appliedProjects.length >= 10) {
     const error = new Error('Sinh viên chỉ được nộp đơn vào tối đa 10 dự án');
@@ -431,8 +437,7 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
   });
   this.applicants = this.applicants.filter(a => a.applicantId.toString() !== applicantId.toString());
 
-  student.currentProject = this._id;
-  await student.save();
+  await student.setCurrentProject(this._id);
 
   await this.save();
 
@@ -442,8 +447,7 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
     { $pull: { applicants: { applicantId: applicantId } } }
   );
   // Xóa các đơn ứng tuyển khác của sinh viên
-  student.appliedProjects = student.appliedProjects.filter(projectId => projectId.toString() === this._id.toString());
-  await student.save();
+  await student.removeAppliedProject(this._id);
 
   // Tạo thông báo cho sinh viên
   await Notification.insert({
@@ -453,6 +457,8 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
     content: notificationMessages.project.applicationAccepted(this.title),
     relatedId: this._id
   });
+
+  return this;
 };
 
 projectSchema.methods.checkDuplicateSelectedApplicants = async function(applicantId) {
@@ -861,8 +867,7 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
   // Cập nhật currentProject của sinh viên
   const student = await mongoose.model('Student').findById(studentId);
   if (student) {
-    student.currentProject = null;
-    await student.save();
+    await student.removeCurrentProject();
   }
 
   // Tạo thông báo cho sinh viên
@@ -881,7 +886,6 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
     relatedId: this._id
   });
 };
-
 
 
 

@@ -2,12 +2,12 @@ import express from 'express';
 import Student from '../models/Student.js';
 import School from '../models/School.js';
 import authenticate from '../middlewares/authenticate.js';
+import { handleError } from '../utils/errorHandler.js';
 import { useRegistrationImageUpload, useExcelUpload } from '../utils/upload.js';
 import { sendEmail } from '../utils/emailService.js';
 import { accountActivationTemplate, emailChangeConfirmationTemplate, passwordResetTemplate, newAccountCreatedTemplate } from '../utils/emailTemplates.js';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { handleError } from '../utils/errorHandler.js';
 import { encrypt, decrypt } from '../utils/encryption.js';
 import { emailChangeLimiter } from '../utils/rateLimiter.js';
 import Major from '../models/Major.js';
@@ -123,7 +123,10 @@ const upload = useRegistrationImageUpload('logos', 'school');
  *       400:
  *         description: Lỗi dữ liệu đầu vào
  */
-router.post('/register', upload.single('logo'), async (req, res) => {
+router.post('/register', upload.single('logo'), async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     const { name, address, accountName, email, password } = req.body;
 
     try {
@@ -142,7 +145,7 @@ router.post('/register', upload.single('logo'), async (req, res) => {
             }]
         });
 
-        await newSchool.save();
+        await newSchool.save({ session });
 
         if (req.file) {
             const fileExtension = path.extname(req.file.originalname);
@@ -152,7 +155,7 @@ router.post('/register', upload.single('logo'), async (req, res) => {
             const finalPath = path.join(finalDir, newFilename);
             fs.renameSync(req.file.path, finalPath);
             newSchool.logo = `uploads/logos/school/${newSchool._id}/${newFilename}`;
-            await newSchool.save();
+            await newSchool.save({ session });
         }
 
         const activationLink = `${process.env.API_URL}/api/school/activate/${newSchool.accounts[0].activationToken}`;
@@ -166,11 +169,17 @@ router.post('/register', upload.single('logo'), async (req, res) => {
             })
         );
 
+        await session.commitTransaction();
+        session.endSession();
+
         res.status(201).json({
             message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
             schoolId: newSchool._id
         });
     } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+
         if (req.file) {
             fs.unlinkSync(req.file.path);
         }
@@ -469,7 +478,6 @@ router.post('/accounts', authenticateSchoolAdmin, async (req, res) => {
 
         res.status(201).json({ message: 'Tài khoản đã được tạo thành công.', account: newAccount });
     } catch (error) {
-        console.error('Error creating account:', error);
         const { status, message } = handleError(error);
         res.status(status).json({ message });
     }
@@ -540,7 +548,8 @@ router.post('/sync-students', authenticateSchoolAdmin, async (req, res) => {
 
         res.status(200).json(student);
     } catch (error) {
-        res.status(500).json({ message: 'Lỗi khi đồng bộ sinh viên.', error: error.message });
+        const { status, message } = handleError(error);
+        res.status(status).json({ message });
     }
 });
 
@@ -974,7 +983,8 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
                     email: row[fieldIndexes.email],
                     studentId: row[fieldIndexes.studentid],
                     dateOfBirth: row[fieldIndexes.dateofbirth],
-                    major: row[fieldIndexes.major]
+                    major: row[fieldIndexes.major],
+                    password: row[fieldIndexes.password] // Thêm trường password nếu có trong file Excel
                 };
 
                 if (Object.values(studentData).some(value => !value)) {
@@ -988,21 +998,37 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
                 }
                 let majorDocs = [majorDoc._id];
 
-                const newStudent = new Student({
-                    ...studentData,
-                    major: majorDocs,
-                    school: schoolId,
-                    isApproved: true
-                });
+                let existingStudent = await Student.findOne({ studentId: studentData.studentId, school: schoolId });
+                
+                if (existingStudent) {
+                    if (!existingStudent.isApproved) {
+                        existingStudent.isApproved = true;
+                        await existingStudent.save();
+                        results.push({ ...existingStudent.toObject(), password: 'Đã tồn tại' });
+                    } else {
+                        issues.push({ row: i + 1, issue: 'Sinh viên đã tồn tại và đã được duyệt' });
+                    }
+                } else {
+                    const newStudent = new Student({
+                        ...studentData,
+                        major: majorDocs,
+                        school: schoolId,
+                        isApproved: true
+                    });
 
-                const defaultPassword = await newStudent.generateDefaultPassword();
-                if (!defaultPassword) {
-                    throw new Error('Không thể tạo mật khẩu mặc định.');
+                    let usedPassword;
+                    if (studentData.password) {
+                        newStudent.password = studentData.password;
+                        usedPassword = studentData.password;
+                    } else {
+                        const defaultPassword = await newStudent.generateDefaultPassword();
+                        newStudent.password = defaultPassword;
+                        usedPassword = defaultPassword;
+                    }
+
+                    await newStudent.save();
+                    results.push({ ...newStudent.toObject(), password: usedPassword });
                 }
-                newStudent.password = defaultPassword;
-
-                await newStudent.save();
-                results.push(newStudent);
             } catch (error) {
                 const { message } = handleError(error);
                 issues.push({ row: i + 1, issue: message });
@@ -1014,7 +1040,8 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
             totalProcessed: data.length - 1,
             successCount: results.length,
             issueCount: issues.length,
-            issues: issues
+            issues: issues,
+            results: results
         });
     } catch (error) {
         const { status, message } = handleError(error);

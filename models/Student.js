@@ -469,8 +469,7 @@ StudentSchema.path('cv').get(function (value) {
 StudentSchema.methods.removeProjectApplication = async function (projectId) {
     try {
         // Xóa dự án khỏi danh sách appliedProjects của sinh viên
-        this.appliedProjects = this.appliedProjects.filter(id => id.toString() !== projectId.toString());
-        await this.save();
+        await this.removeAppliedProject(projectId);
 
         // Xóa sinh viên khỏi danh sách applicants của dự án
         const Project = mongoose.model('Project');
@@ -547,6 +546,48 @@ StudentSchema.methods.updateTaskStatus = async function (taskId, status) {
     await task.save();
     return task;
 };
+StudentSchema.methods.addAppliedProject = async function(projectId) {
+    if (this.isApproved) {
+      if (!this.appliedProjects.includes(projectId)) {
+        this.appliedProjects.push(projectId);
+        await this.save();
+      }
+    }
+  };
+  
+  StudentSchema.methods.removeAppliedProject = async function(projectId) {
+    this.appliedProjects = this.appliedProjects.filter(id => id.toString() !== projectId.toString());
+    await this.save();
+  };
+  
+  StudentSchema.methods.setCurrentProject = async function(projectId) {
+    if (this.isApproved) {
+      this.currentProject = projectId;
+      await this.save();
+    }
+  };
+  
+  StudentSchema.methods.removeCurrentProject = async function() {
+    this.currentProject = null;
+    await this.save();
+  };
+  
+  // Middleware để đảm bảo chỉ sinh viên đã được phê duyệt mới có thể được thêm vào dự án
+  StudentSchema.pre('save', async function(next) {
+    if (this.isModified('isApproved') && this.isApproved) {
+      // Nếu sinh viên vừa được phê duyệt, cập nhật tất cả các dự án liên quan
+      const Project = mongoose.model('Project');
+      await Project.updateMany(
+        { 'applicants.applicantId': this._id },
+        { $set: { 'applicants.$.isApproved': true } }
+      );
+      await Project.updateMany(
+        { 'selectedApplicants.studentId': this._id },
+        { $set: { 'selectedApplicants.$.isApproved': true } }
+      );
+    }
+    next();
+  });
 
 // Đảm bảo rằng các getter được bao gồm khi chuyển đổi sang JSON
 StudentSchema.set('toJSON', { getters: true });

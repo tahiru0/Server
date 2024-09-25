@@ -181,5 +181,18 @@ const cleanupTempFiles = async () => {
 // Chạy hàm này định kỳ, ví dụ mỗi 24 giờ
 setInterval(cleanupTempFiles, 24 * 60 * 60 * 1000);
 
-export { useImageUpload, useExcelUpload, usePDFUpload, useRegistrationImageUpload };
+// Thêm middleware xử lý lỗi
+const handleUploadError = (err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ message: 'Kích thước tệp vượt quá giới hạn 5MB.' });
+        }
+        return res.status(400).json({ message: 'Lỗi khi tải lên tệp.' });
+    } else if (err) {
+        return res.status(400).json({ message: err.message });
+    }
+    next();
+};
+
+export { useImageUpload, useExcelUpload, usePDFUpload, useRegistrationImageUpload, handleUploadError };
 
