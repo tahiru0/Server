@@ -66,20 +66,38 @@ const authenticateAdmin = authenticate(Admin, findAdminById, 'admin');
  */
 router.get('/companies', authenticateAdmin, async (req, res, next) => {
   try {
-    const result = await filterSearchSort(Company, req.query, {
-      filterFields: ['name', 'address'],
-      searchFields: ['name', 'address'],
-      populateFields: ['accounts'],
-      select: '-accounts.password'
-    });
+    const { page = 1, limit = 10, search, sort, order } = req.query;
+    const skip = (page - 1) * limit;
 
-    // Lấy thêm projectCount cho mỗi công ty
-    const companiesWithProjectCount = await Promise.all(result.data.map(async (company) => {
+    let query = Company.find();
+
+    if (search) {
+      query = query.or([
+        { name: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } }
+      ]);
+    }
+
+    if (sort) {
+      const sortOrder = order === 'desc' ? -1 : 1;
+      query = query.sort({ [sort]: sortOrder });
+    }
+
+    const totalItems = await Company.countDocuments(query);
+    const companies = await query.skip(skip).limit(parseInt(limit)).populate('accounts', '-password');
+
+    const companiesWithProjectCount = await Promise.all(companies.map(async (company) => {
       const projectCount = await Project.countDocuments({ company: company._id });
       return { ...company.toObject(), projectCount };
     }));
 
-    res.status(200).json({ ...result, data: companiesWithProjectCount });
+    res.status(200).json({
+      data: companiesWithProjectCount,
+      page: parseInt(page),
+      totalPages: Math.ceil(totalItems / limit),
+      totalItems,
+      limit: parseInt(limit)
+    });
   } catch (error) {
     next(error);
   }
@@ -109,15 +127,6 @@ router.get('/companies', authenticateAdmin, async (req, res, next) => {
  *       500:
  *         description: Lỗi server
  */
-router.post('/companies', authenticateAdmin, async (req, res, next) => {
-  try {
-    const newCompany = new Company(req.body);
-    const savedCompany = await newCompany.save();
-    res.status(201).json(savedCompany);
-  } catch (error) {
-    next(error);
-  }
-});
 
 router.get('/companies/:id', authenticateAdmin, async (req, res, next) => {
   try {
@@ -184,22 +193,33 @@ router.delete('/companies/:id', authenticateAdmin, async (req, res, next) => {
  */
 router.get('/schools', authenticateAdmin, async (req, res, next) => {
   try {
-    const result = await filterSearchSort(School, req.query, {
-      filterFields: ['name', 'address'],
-      searchFields: ['name', 'address'],
-      populateFields: ['accounts'],
-      select: '-accounts.password'
-    });
+    const { page = 1, limit = 10, search, sort, order } = req.query;
+    const skip = (page - 1) * limit;
 
-    // Lấy số lượng sinh viên cho mỗi trường
-    const schoolIds = result.data.map(school => school._id);
+    let query = School.find();
+
+    if (search) {
+      query = query.or([
+        { name: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } }
+      ]);
+    }
+
+    if (sort) {
+      const sortOrder = order === 'desc' ? -1 : 1;
+      query = query.sort({ [sort]: sortOrder });
+    }
+
+    const totalItems = await School.countDocuments(query);
+    const schools = await query.skip(skip).limit(parseInt(limit)).populate('accounts', '-password');
+
+    const schoolIds = schools.map(school => school._id);
     const studentCounts = await Student.aggregate([
       { $match: { school: { $in: schoolIds }, isDeleted: false } },
       { $group: { _id: '$school', count: { $sum: 1 } } }
     ]);
 
-    // Thêm số lượng sinh viên vào kết quả
-    result.data = result.data.map(school => {
+    const schoolsWithStudentCount = schools.map(school => {
       const studentCount = studentCounts.find(count => count._id.toString() === school._id.toString());
       return {
         ...school.toObject(),
@@ -207,7 +227,13 @@ router.get('/schools', authenticateAdmin, async (req, res, next) => {
       };
     });
 
-    res.status(200).json(result);
+    res.status(200).json({
+      data: schoolsWithStudentCount,
+      page: parseInt(page),
+      totalPages: Math.ceil(totalItems / limit),
+      totalItems,
+      limit: parseInt(limit)
+    });
   } catch (error) {
     next(error);
   }

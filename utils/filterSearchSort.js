@@ -1,64 +1,71 @@
 import mongoose from 'mongoose';
 
-export const filterSearchSort = async (Model, query, options = {}) => {
+export async function filterSearchSort(Model, options) {
   const {
-    filterFields = [],
-    searchFields = [],
-    defaultSortField = 'createdAt',
-    defaultSortOrder = 'desc',
-    populateFields = [],
     page = 1,
     limit = 10,
-    select = '',
+    search,
+    sort,
+    order,
+    filterFields,
+    searchFields,
+    populateFields,
+    select
   } = options;
 
-  let mongooseQuery = Model.find({ isDeleted: false });
+  let query = Model.find();
 
-  // Xử lý filter
-  filterFields.forEach(field => {
-    if (query[field]) {
-      mongooseQuery = mongooseQuery.where(field).equals(query[field]);
-    }
-  });
-
-  // Xử lý tìm kiếm
-  if (query.search && searchFields.length > 0) {
-    const searchRegex = new RegExp(query.search, 'i');
+  // Áp dụng tìm kiếm
+  if (search && searchFields) {
+    const searchRegex = new RegExp(search, 'i');
     const searchConditions = searchFields.map(field => ({ [field]: searchRegex }));
-    mongooseQuery = mongooseQuery.or(searchConditions);
+    query = query.or(searchConditions);
   }
 
-  // Xử lý sắp xếp
-  const sortField = query.sortBy || defaultSortField;
-  const sortOrder = query.order === 'asc' ? 1 : -1;
-  mongooseQuery = mongooseQuery.sort({ [sortField]: sortOrder });
+  // Áp dụng lọc
+  if (filterFields) {
+    Object.entries(filterFields).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        query = query.where(key).equals(value);
+      }
+    });
+  }
 
-  // Xử lý phân trang
-  const skip = (page - 1) * limit;
-  mongooseQuery = mongooseQuery.skip(skip).limit(Number(limit));
+  // Áp dụng sắp xếp
+  if (sort) {
+    const sortOrder = order === 'desc' ? -1 : 1;
+    query = query.sort({ [sort]: sortOrder });
+  }
 
-  // Xử lý select fields
+  // Áp dụng populate
+  if (populateFields) {
+    query = query.populate(populateFields);
+  }
+
+  // Áp dụng select
   if (select) {
-    mongooseQuery = mongooseQuery.select(select);
+    query = query.select(select);
   }
 
-  // Xử lý populate
-  populateFields.forEach(field => {
-    mongooseQuery = mongooseQuery.populate(field);
-  });
+  // Đếm tổng số documents
+  const totalItems = await Model.countDocuments(query);
+
+  // Áp dụng phân trang
+  const totalPages = Math.ceil(totalItems / limit);
+  const skip = (page - 1) * limit;
+  query = query.skip(skip).limit(limit);
 
   // Thực hiện truy vấn
-  const results = await mongooseQuery.exec();
-  const total = await Model.countDocuments(mongooseQuery.getFilter());
+  const data = await query;
 
   return {
-    data: results,
-    total,
-    page: Number(page),
-    limit: Number(limit),
-    totalPages: Math.ceil(total / limit)
+    data,
+    currentPage: page,
+    totalPages,
+    totalItems,
+    itemsPerPage: limit
   };
-};
+}
 
 export const applyFilters = (query, filterFields) => {
   const filters = {};

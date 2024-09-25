@@ -45,104 +45,137 @@ const realSkills = [
 
 const realUniversities = [
   {
-    name: 'Đại học Quốc gia Hà Nội',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Quoc-Gia-Ha-Noi-DHQGHN.png',
-    website: 'https://www.vnu.edu.vn'
-  },
-  {
     name: 'Đại học Quốc gia Thành phố Hồ Chí Minh',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Quoc-Gia-TPHCM-VNUHCMVN.png',
-    website: 'https://vnuhcm.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Quoc-Gia-TPHCM-VNUHCMVN-V.png',
+    website: 'https://vnuhcm.edu.vn',
+    address: 'Phường Linh Trung, Thành phố Thủ Đức, Thành phố Hồ Chí Minh',
+    establishedDate: '1995-01-27'
   },
   {
     name: 'Đại học Thái Nguyên',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Thai-Nguyen.png',
-    website: 'https://www.tnu.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Cong-Nghe-Thong-Tin-UIT-V.png',
+    website: 'https://www.tnu.edu.vn',
+    address: 'Phường Tân Thịnh, Thành phố Thái Nguyên, Tỉnh Thái Nguyên',
+    establishedDate: '1994-04-04'
   },
   {
     name: 'Đại học Huế',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Hue.png',
-    website: 'https://www.hueuni.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Cong-Nghe-Thong-Tin-UIT-V.png',
+    website: 'https://www.hueuni.edu.vn',
+    address: '03 Lê Lợi, Phường Vĩnh Ninh, Thành phố Huế, Tỉnh Thừa Thiên Huế',
+    establishedDate: '1957-03-01'
   },
   {
     name: 'Đại học Đà Nẵng',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Da-Nang.png',
-    website: 'https://www.udn.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-Truong-Dai-hoc-Bach-khoa-Dai-hoc-Da-Nang-DUT.png',
+    website: 'https://www.udn.vn',
+    address: '41 Lê Duẩn, Quận Hải Châu, Thành phố Đà Nẵng',
+    establishedDate: '1994-04-04'
   },
   {
     name: 'Đại học Bách khoa Hà Nội',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Bach-Khoa-Ha-Noi-HUST.png',
-    website: 'https://www.hust.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Bach-Khoa-Ha-Noi-HUST.png',
+    website: 'https://www.hust.edu.vn',
+    address: 'Số 1 Đại Cồ Việt, Quận Hai Bà Trưng, Hà Nội',
+    establishedDate: '1956-03-15'
   },
   {
     name: 'Đại học Kinh tế Thành phố Hồ Chí Minh',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Kinh-Te-TpHCM-UEH.png',
-    website: 'https://www.ueh.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Kinh-Te-TpHCM-UEH.png',
+    website: 'https://www.ueh.edu.vn',
+    address: '59C Nguyễn Đình Chiểu, Phường 6, Quận 3, Thành phố Hồ Chí Minh',
+    establishedDate: '1976-10-27'
   },
   {
     name: 'Đại học Sư phạm Hà Nội',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-Dai-hoc-Su-pham-Ha-Noi-HNUE.png',
-    website: 'http://hnue.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-Dai-hoc-Su-pham-Ha-Noi-HNUE.png',
+    website: 'http://hnue.edu.vn',
+    address: '136 Xuân Thuỷ, Quận Cầu Giấy, Hà Nội',
+    establishedDate: '1951-10-11'
   },
   {
     name: 'Đại học Y Hà Nội',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Y-Ha-Noi.png',
-    website: 'https://www.hmu.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-Dai-Hoc-Duoc-Ha-Noi-HUP.png',
+    website: 'https://www.hmu.edu.vn',
+    address: '1 Tôn Thất Tùng, Quận Đống Đa, Hà Nội',
+    establishedDate: '1902-11-14'
   },
   {
     name: 'Đại học Ngoại thương',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Ngoai-Thuong.png',
-    website: 'https://www.ftu.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Ngoai-Ngu-Tin-Hoc-HUFLIT.png',
+    website: 'https://www.ftu.edu.vn',
+    address: '91 Chùa Láng, Quận Đống Đa, Hà Nội',
+    establishedDate: '1960-11-08'
   },
   {
     name: 'Đại học Nguyễn Tất Thành',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Nguyen-Tat-Thanh-NTTU.png',
-    website: 'https://www.ntt.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Nguyen-Tat-Thanh.png',
+    website: 'https://www.ntt.edu.vn',
+    address: '300A Nguyễn Tất Thành, Phường 13, Quận 4, Thành phố Hồ Chí Minh',
+    establishedDate: '2007-09-24'
   },
   {
     name: 'Đại học Cần Thơ',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Can-Tho-CTU.png',
-    website: 'https://www.ctu.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-Dai-Hoc-Can-Tho-CTU.png',
+    website: 'https://www.ctu.edu.vn',
+    address: 'Khu II, đường 3/2, Phường Xuân Khánh, Quận Ninh Kiều, Thành phố Cần Thơ',
+    establishedDate: '1966-03-31'
   },
   {
     name: 'Đại học Kinh tế Quốc dân',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Kinh-Te-Quoc-Dan-NEU.png',
-    website: 'https://www.neu.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Kinh-Te-Quoc-Dan-NEU.png',
+    website: 'https://www.neu.edu.vn',
+    address: '207 Giải Phóng, Quận Hai Bà Trưng, Hà Nội',
+    establishedDate: '1956-01-25'
   },
   {
     name: 'Đại học Công nghiệp Hà Nội',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Cong-Nghiep-Ha-Noi-HaUI.png',
-    website: 'https://www.haui.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Cong-nghiep-Ha-Noi.png',
+    website: 'https://www.haui.edu.vn',
+    address: 'Số 298 đường Cầu Diễn, Quận Bắc Từ Liêm, Hà Nội',
+    establishedDate: '1898-03-15'
   },
   {
     name: 'Đại học Mở Thành phố Hồ Chí Minh',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Mo-TPHCM-HCMCOU.png',
-    website: 'https://ou.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Mo-TPHCM-OU-H.png',
+    website: 'https://ou.edu.vn',
+    address: '97 Võ Văn Tần, Phường 6, Quận 3, Thành phố Hồ Chí Minh',
+    establishedDate: '1993-06-15'
   },
   {
     name: 'Đại học Tôn Đức Thắng',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Ton-Duc-Thang-TDTU.png',
-    website: 'https://www.tdtu.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Ton-Duc-Thang-TDT.png',
+    website: 'https://www.tdtu.edu.vn',
+    address: '19 Nguyễn Hữu Thọ, Phường Tân Phong, Quận 7, Thành phố Hồ Chí Minh',
+    establishedDate: '1997-09-24'
   },
   {
     name: 'Đại học Sư phạm Kỹ thuật Thành phố Hồ Chí Minh',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Su-Pham-Ky-Thuat-TPHCM-HCMUTE.png',
-    website: 'https://hcmute.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Su-Pham-Ky-Thuat-TP-Ho-Chi-Minh-HCMUTE.png',
+    website: 'https://hcmute.edu.vn',
+    address: '1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, Thành phố Hồ Chí Minh',
+    establishedDate: '1962-10-05'
   },
   {
     name: 'Đại học Công nghệ Thông tin (ĐH Quốc gia TP.HCM)',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Cong-Nghe-Thong-Tin-UIT.png',
-    website: 'https://www.uit.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Cong-Nghe-Thong-Tin-UIT-V.png',
+    website: 'https://www.uit.edu.vn',
+    address: 'Khu phố 6, Phường Linh Trung, Thành phố Thủ Đức, Thành phố Hồ Chí Minh',
+    establishedDate: '2006-02-27'
   },
   {
     name: 'Đại học Văn Lang',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Van-Lang-VLU.png',
-    website: 'https://www.vanlanguni.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Van-Lang-H.png',
+    website: 'https://www.vanlanguni.edu.vn',
+    address: '45 Nguyễn Khắc Nhu, Phường Cô Giang, Quận 1, Thành phố Hồ Chí Minh',
+    establishedDate: '1995-03-10'
   },
   {
     name: 'Đại học Hoa Sen',
-    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Hoa-Sen-HSU.png',
-    website: 'https://www.hoasen.edu.vn'
+    logo: 'http://localhost:5000/uploads/logos/school/Logo-DH-Hoa-Sen-VN.png',
+    website: 'https://www.hoasen.edu.vn',
+    address: '8 Nguyễn Văn Tráng, Phường Bến Thành, Quận 1, Thành phố Hồ Chí Minh',
+    establishedDate: '1991-05-26'
   }
 ];
 
@@ -311,7 +344,7 @@ router.post('/create-companies', async (req, res) => {
   session.startTransaction();
 
   try {
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       const company = new Company({
         name: faker.company.name(),
         email: faker.internet.email(),
@@ -389,9 +422,9 @@ router.post('/create-schools', async (req, res) => {
     for (const university of realUniversities) {
       const school = new School({
         name: university.name,
-        address: faker.location.streetAddress(),
+        address: university.address,
         website: university.website,
-        establishedDate: faker.date.past(100),
+        establishedDate: new Date(university.establishedDate),
         logo: university.logo,
         isActive: true,
         accounts: [
