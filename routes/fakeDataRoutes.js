@@ -46,102 +46,102 @@ const realSkills = [
 const realUniversities = [
   {
     name: 'Đại học Quốc gia Hà Nội',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/c/c6/Logo_Đại_học_Quốc_gia_Hà_Nội.svg/1200px-Logo_Đại_học_Quốc_gia_Hà_Nội.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Quoc-Gia-Ha-Noi-DHQGHN.png',
     website: 'https://www.vnu.edu.vn'
   },
   {
     name: 'Đại học Quốc gia Thành phố Hồ Chí Minh',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/3/3b/Logo_Đại_học_Quốc_gia_TP.HCM.svg/1200px-Logo_Đại_học_Quốc_gia_TP.HCM.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Quoc-Gia-TPHCM-VNUHCMVN.png',
     website: 'https://vnuhcm.edu.vn'
   },
   {
     name: 'Đại học Thái Nguyên',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/5/5e/Logo_Đại_học_Thái_Nguyên.svg/1200px-Logo_Đại_học_Thái_Nguyên.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Thai-Nguyen.png',
     website: 'https://www.tnu.edu.vn'
   },
   {
     name: 'Đại học Huế',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/4/47/Logo_Đại_học_Huế.svg/1200px-Logo_Đại_học_Huế.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Hue.png',
     website: 'https://www.hueuni.edu.vn'
   },
   {
     name: 'Đại học Đà Nẵng',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/b/bf/Logo_Đại_học_Đà_Nẵng.svg/1200px-Logo_Đại_học_Đà_Nẵng.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Da-Nang.png',
     website: 'https://www.udn.vn'
   },
   {
     name: 'Đại học Bách khoa Hà Nội',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/a/a6/Logo_Đại_học_Bách_khoa_Hà_Nội.svg/1200px-Logo_Đại_học_Bách_khoa_Hà_Nội.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Bach-Khoa-Ha-Noi-HUST.png',
     website: 'https://www.hust.edu.vn'
   },
   {
     name: 'Đại học Kinh tế Thành phố Hồ Chí Minh',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/9/9c/Logo_Đại_học_Kinh_tế_TP.HCM.svg/1200px-Logo_Đại_học_Kinh_tế_TP.HCM.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Kinh-Te-TpHCM-UEH.png',
     website: 'https://www.ueh.edu.vn'
   },
   {
     name: 'Đại học Sư phạm Hà Nội',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/5/5e/Logo_Đại_học_Sư_phạm_Hà_Nội.svg/1200px-Logo_Đại_học_Sư_phạm_Hà_Nội.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-Dai-hoc-Su-pham-Ha-Noi-HNUE.png',
     website: 'http://hnue.edu.vn'
   },
   {
     name: 'Đại học Y Hà Nội',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/f/fd/Logo_Đại_học_Y_Hà_Nội.svg/1200px-Logo_Đại_học_Y_Hà_Nội.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Y-Ha-Noi.png',
     website: 'https://www.hmu.edu.vn'
   },
   {
     name: 'Đại học Ngoại thương',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/0/00/Logo_Đại_học_Ngoại_thương.svg/1200px-Logo_Đại_học_Ngoại_thương.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Ngoai-Thuong.png',
     website: 'https://www.ftu.edu.vn'
   },
   {
     name: 'Đại học Nguyễn Tất Thành',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/1/1b/Logo_Trường_Đại_học_Nguyễn_Tất_Thành.svg/1200px-Logo_Trường_Đại_học_Nguyễn_Tất_Thành.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Nguyen-Tat-Thanh-NTTU.png',
     website: 'https://www.ntt.edu.vn'
   },
   {
     name: 'Đại học Cần Thơ',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/e/e3/Logo_Đại_học_Cần_Thơ.svg/1200px-Logo_Đại_học_Cần_Thơ.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Can-Tho-CTU.png',
     website: 'https://www.ctu.edu.vn'
   },
   {
     name: 'Đại học Kinh tế Quốc dân',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/9/9a/Logo_Đại_học_Kinh_tế_Quốc_dân.svg/1200px-Logo_Đại_học_Kinh_tế_Quốc_dân.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Kinh-Te-Quoc-Dan-NEU.png',
     website: 'https://www.neu.edu.vn'
   },
   {
     name: 'Đại học Công nghiệp Hà Nội',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/e/ea/Logo_Đại_học_Công_nghiệp_Hà_Nội.svg/1200px-Logo_Đại_học_Công_nghiệp_Hà_Nội.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Cong-Nghiep-Ha-Noi-HaUI.png',
     website: 'https://www.haui.edu.vn'
   },
   {
     name: 'Đại học Mở Thành phố Hồ Chí Minh',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/d/d7/Logo_Trường_Đại_học_Mở_Thành_phố_Hồ_Chí_Minh.svg/1200px-Logo_Trường_Đại_học_Mở_Thành_phố_Hồ_Chí_Minh.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Mo-TPHCM-HCMCOU.png',
     website: 'https://ou.edu.vn'
   },
   {
     name: 'Đại học Tôn Đức Thắng',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/2/2c/Logo_Đại_học_Tôn_Đức_Thắng.png/1200px-Logo_Đại_học_Tôn_Đức_Thắng.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Ton-Duc-Thang-TDTU.png',
     website: 'https://www.tdtu.edu.vn'
   },
   {
     name: 'Đại học Sư phạm Kỹ thuật Thành phố Hồ Chí Minh',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/1/1b/Logo_Trường_Đại_học_Sư_phạm_Kỹ_thuật_Thành_phố_Hồ_Chí_Minh.svg/1200px-Logo_Trường_Đại_học_Sư_phạm_Kỹ_thuật_Thành_phố_Hồ_Chí_Minh.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Su-Pham-Ky-Thuat-TPHCM-HCMUTE.png',
     website: 'https://hcmute.edu.vn'
   },
   {
-    name: 'Đại học Công nghệ Thông tin',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/9/99/Logo_Trường_Đại_học_Công_nghệ_Thông_tin_-_Đại_học_Quốc_gia_TP.HCM.svg/1200px-Logo_Trường_Đại_học_Công_nghệ_Thông_tin_-_Đại_học_Quốc_gia_TP.HCM.svg.png',
+    name: 'Đại học Công nghệ Thông tin (ĐH Quốc gia TP.HCM)',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Cong-Nghe-Thong-Tin-UIT.png',
     website: 'https://www.uit.edu.vn'
   },
   {
     name: 'Đại học Văn Lang',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/6/6a/Logo_Trường_Đại_học_Văn_Lang.svg/1200px-Logo_Trường_Đại_học_Văn_Lang.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Van-Lang-VLU.png',
     website: 'https://www.vanlanguni.edu.vn'
   },
   {
     name: 'Đại học Hoa Sen',
-    logo: 'https://upload.wikimedia.org/wikipedia/vi/thumb/f/f7/Logo_Trường_Đại_học_Hoa_Sen.svg/1200px-Logo_Trường_Đại_học_Hoa_Sen.svg.png',
+    logo: 'https://haitrieu.com/wp-content/uploads/2022/01/Logo-DH-Hoa-Sen-HSU.png',
     website: 'https://www.hoasen.edu.vn'
   }
 ];
