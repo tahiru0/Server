@@ -72,17 +72,6 @@ router.post('/approve-student/:studentId', authenticateSchoolAdmin, async (req, 
         student.approvedAt = new Date();
         await student.save();
 
-        // Gửi email thông báo cho sinh viên
-        const emailResult = await sendEmail(
-            student.email,
-            'Xác nhận tài khoản sinh viên',
-            `Xin chúc mừng! Tài khoản sinh viên của bạn đã được xác nhận.`
-        );
-        if (!emailResult.success) {
-            console.error('Failed to send email:', emailResult.error);
-            // Có thể thêm logic xử lý lỗi ở đây nếu cần
-        }
-
         res.json({ message: 'Xác nhận tài khoản sinh viên thành công' });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -987,8 +976,9 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
                     password: row[fieldIndexes.password] // Thêm trường password nếu có trong file Excel
                 };
 
-                if (Object.values(studentData).some(value => !value)) {
-                    throw new Error('Thiếu thông tin bắt buộc');
+                const requiredFieldsInRow = Object.keys(studentData).filter(key => key !== 'password' && !studentData[key]);
+                if (requiredFieldsInRow.length > 0) {
+                    return res.status(400).json({ message: `Thiếu các trường bắt buộc: ${requiredFieldsInRow.join(', ')}` });
                 }
 
                 let majorDoc = await Major.findOne({ name: { $regex: new RegExp('^' + studentData.major.trim() + '$', 'i') } });

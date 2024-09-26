@@ -72,6 +72,10 @@ const SchoolAccountSchema = new Schema({
             return `/default/${this.name.charAt(0).toUpperCase()}`;
         }
     },
+    lastNotifiedDevice: {
+        type: Date,
+        default: null
+    }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 SchoolAccountSchema.virtual('password')

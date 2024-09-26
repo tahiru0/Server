@@ -40,6 +40,10 @@ const adminSchema = new mongoose.Schema({
   },
   lastLogin: {
     type: Date
+  },
+  lastNotifiedDevice: {
+    type: Date,
+    default: null
   }
 });
 

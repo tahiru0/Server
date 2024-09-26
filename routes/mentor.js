@@ -385,6 +385,24 @@ router.get('/projects/:projectId/applicants', authenticateMentor, async (req, re
     next(error);
   }
 });
+// Xóa sinh viên khỏi dự án
+router.post('/projects/:projectId/remove-student/:studentId', authenticateMentor, async (req, res, next) => {
+  try {
+    const { projectId, studentId } = req.params;
+    const { reason } = req.body;
+
+    const project = await Project.findOne({ _id: projectId, mentor: req.user._id });
+    if (!project) {
+      return res.status(404).json({ message: 'Không tìm thấy dự án' });
+    }
+
+    await project.removeStudentFromProject(studentId, reason);
+
+    res.json({ message: 'Đã xóa sinh viên khỏi dự án thành công' });
+  } catch (error) {
+    next(error);
+  }
+});
 
 const errorHandler = (err, req, res, next) => {
   const { status, message } = handleError(err);

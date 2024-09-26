@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+const { Schema } = mongoose;
 import Notification from './Notification.js';
 import sanitizeHtml from 'sanitize-html';
 import notificationMessages from '../utils/notificationMessages.js';
@@ -191,6 +192,11 @@ const projectSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  removedStudents: [{
+    studentId: { type: Schema.Types.ObjectId, ref: 'Student' },
+    removedAt: { type: Date, default: Date.now },
+    reason: String
+  }],
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 projectSchema.methods.pinProject = async function () {
@@ -418,18 +424,20 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
     throw error;
   }
 
-  const student = await mongoose.model('Student').findById(applicantId);
-  if (!student) {
-    const error = new Error('Không tìm thấy sinh viên');
-    error.status = 400;
-    throw error;
-  }
+  const student = await mongoose.model('Student').findById(applicantId).lean();
+if (!student) {
+  const error = new Error('Không tìm thấy sinh viên');
+  error.status = 400;
+  throw error;
+}
 
-  if (student.currentProject) {
-    const error = new Error('Sinh viên đã được chấp nhận vào một dự án khác');
-    error.status = 400;
-    throw error;
-  }
+console.log('Student data:', JSON.stringify(student, null, 2));
+
+if (student.currentProject) {
+  const error = new Error('Sinh viên đã được chấp nhận vào một dự án khác');
+  error.status = 400;
+  throw error;
+}
 
   this.selectedApplicants.push({
     studentId: applicant.applicantId,
@@ -571,7 +579,7 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
 
   const [projects, totalProjects] = await Promise.all([
     this.find(searchCriteria)
-      .select('_id title status isRecruiting maxApplicants pinnedProject applicationStart applicationEnd requiredSkills relatedMajors')
+      .select('_id title status isRecruiting maxApplicants pinnedProject applicationStart applicationEnd requiredSkills relatedMajors applicants')
       .populate('company', 'name _id logo')
       .populate('relatedMajors', 'name')
       .populate('requiredSkills', 'name')
@@ -590,6 +598,7 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
     if (filters.major) {
       score += project.relatedMajors.some(major => major._id.toString() === filters.major) ? 1 : 0;
     }
+    const availablePositions = Math.max(0, project.maxApplicants - project.applicants.length);
     return {
       _id: project._id,
       title: project.title,
@@ -598,7 +607,7 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
       companyLogo: project.company.logo ? (project.company.logo.startsWith('http') ? project.company.logo : `http://localhost:5000${project.company.logo}`) : null,
       status: project.status,
       isRecruiting: project.isRecruiting,
-      maxApplicants: project.maxApplicants,
+      availablePositions: availablePositions,
       pinnedProject: project.pinnedProject,
       relatedMajors: project.relatedMajors.map(major => major.name),
       requiredSkills: project.requiredSkills.map(skill => skill.name),
@@ -632,14 +641,12 @@ projectSchema.statics.getPublicProjectDetails = async function (projectId, stude
   let isSelected = false;
 
   if (studentId) {
-    console.log('Checking for student:', studentId); // Thêm log
-    console.log('Applicants:', project.applicants); // Thêm log
     hasApplied = project.applicants.some(applicant => applicant.applicantId.toString() === studentId.toString());
     isSelected = project.selectedApplicants.some(selected => selected.studentId.toString() === studentId.toString());
   }
 
-  console.log('Has Applied:', hasApplied); // Thêm log
-  console.log('Is Selected:', isSelected); // Thêm log
+
+  const availablePositions = Math.max(0, project.maxApplicants - project.applicants.length);
 
   return {
     _id: project._id,
@@ -651,6 +658,7 @@ projectSchema.statics.getPublicProjectDetails = async function (projectId, stude
     status: project.status,
     isRecruiting: project.isRecruiting,
     maxApplicants: project.maxApplicants,
+    availablePositions: availablePositions,
     applicationStart: project.applicationStart,
     applicationEnd: project.applicationEnd,
     objectives: project.objectives,
@@ -860,8 +868,15 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
     throw error;
   }
 
-  // Xóa sinh viên khỏi danh sách selectedApplicants
-  this.selectedApplicants.splice(selectedApplicantIndex, 1);
+  // Xóa sinh viên khỏi danh sách selectedApplicants và lưu lý do đuổi
+  const removedStudent = this.selectedApplicants.splice(selectedApplicantIndex, 1)[0];
+  this.removedStudents = this.removedStudents || [];
+  this.removedStudents.push({
+    studentId: removedStudent.studentId,
+    removedAt: new Date(),
+    reason: reason
+  });
+
   await this.save();
 
   // Cập nhật currentProject của sinh viên

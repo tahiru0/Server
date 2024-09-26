@@ -158,7 +158,7 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
       await newCompany.save({ session });
     }
 
-    const activationLink = `${process.env.API_URL}/api/company/activate/${newCompany.accounts[0].activationToken}`;
+    const activationLink = `http://localhost:5000/api/company/activate/${newCompany.accounts[0].activationToken}`;
     await sendEmail(
       email,
       'Xác nhận tài khoản của bạn',

@@ -154,6 +154,10 @@ const StudentSchema = new Schema({
     isApproved: { type: Boolean, default: false },
     approvedBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
     approvedAt: { type: Date },
+    lastNotifiedDevice: {
+        type: Date,
+        default: null
+    }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 StudentSchema.virtual('password')

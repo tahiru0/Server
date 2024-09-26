@@ -85,6 +85,10 @@ const CompanyAccountSchema = new Schema({
             return encodeUrl(this.name.charAt(0).toUpperCase()); // Sử dụng encodeUrl để tạo avatar mặc định
         }
     },
+    lastNotifiedDevice: {
+        type: Date,
+        default: null
+      }
 }, { timestamps: true });
 
 CompanyAccountSchema.pre('save', async function(next) {

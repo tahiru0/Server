@@ -20,21 +20,21 @@ const router = express.Router();
 
 const isNewDevice = async (user, userModel, ipAddress, userAgent) => {
   const deviceInfo = parseUserAgent(userAgent);
-  const loginHistory = await LoginHistory.find({ user: user._id, userModel: userModel });
+  const lastLogin = await LoginHistory.findOne({ user: user._id, userModel: userModel })
+    .sort({ loginTime: -1 })
+    .exec();
 
-  if (loginHistory.length === 0) {
-    // Lần đăng nhập đầu tiên, bỏ qua kiểm tra
-    return false;
+  if (!lastLogin) {
+    return true;
   }
 
-  return !loginHistory.some(history => 
-    history.ipAddress === ipAddress &&
-    history.deviceInfo.browser === deviceInfo.browser &&
-    history.deviceInfo.version === deviceInfo.version &&
-    history.deviceInfo.os === deviceInfo.os 
+  return (
+    lastLogin.ipAddress !== ipAddress ||
+    lastLogin.deviceInfo.browser !== deviceInfo.browser ||
+    lastLogin.deviceInfo.os !== deviceInfo.os
   );
 };
-  
+
 /**
  * @swagger
  * /api/auth/register/admin:
@@ -59,20 +59,20 @@ const isNewDevice = async (user, userModel, ipAddress, userAgent) => {
  *         description: Lỗi dữ liệu đầu vào
  */
 const registerAdmin = async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        const admin = new Admin({ username, password });
-        await admin.save();
-        const token = jwt.sign({ _id: admin._id, model: 'Admin' }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
-        res.status(201).json({ 
-            message: "Đăng ký tài khoản thành công", 
-            admin: { _id: admin._id, username: admin.username, role: admin.role }, 
-            token 
-        });
-    } catch (error) {
-        const { status, message } = handleError(error);
-        res.status(status).json({ message });
-    }
+  try {
+    const { username, password } = req.body;
+    const admin = new Admin({ username, password });
+    await admin.save();
+    const token = jwt.sign({ _id: admin._id, model: 'Admin' }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
+    res.status(201).json({
+      message: "Đăng ký tài khoản thành công",
+      admin: { _id: admin._id, username: admin.username, role: admin.role },
+      token
+    });
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
 };
 
 /**
@@ -112,7 +112,7 @@ const loginAdmin = async (req, res) => {
     }
 
     const admin = await Admin.login(username, password);
-    
+
     if (!admin) {
       throw new Error('Thông tin đăng nhập không chính xác.');
     }
@@ -127,11 +127,13 @@ const loginAdmin = async (req, res) => {
 
     const isNewDev = await isNewDevice(admin, 'Admin', ipAddress, req.headers['user-agent']);
     if (isNewDev) {
+      admin.lastNotifiedDevice = new Date();
+      await admin.save();
       await Notification.insert({
         recipient: admin._id,
         recipientModel: 'Admin',
         type: 'account',
-        content: notificationMessages.account.newDeviceLogin()  // Sử dụng key từ notificationMessages
+        content: notificationMessages.account.newDeviceLogin()
       });
     }
 
@@ -225,12 +227,14 @@ const loginCompany = async (req, res) => {
 
     const isNewDev = await isNewDevice(account, 'CompanyAccount', ipAddress, req.headers['user-agent']);
     if (isNewDev) {
+      account.lastNotifiedDevice = new Date();
+      await company.save();
       await Notification.insert({
         recipient: account._id,
         recipientModel: 'CompanyAccount',
         recipientRole: account.role,
         type: 'account',
-        content: notificationMessages.account.newDeviceLogin()  // Sử dụng key từ notificationMessages
+        content: notificationMessages.account.newDeviceLogin()
       });
     }
 
@@ -324,12 +328,14 @@ const loginSchool = async (req, res) => {
 
     const isNewDev = await isNewDevice(account, 'SchoolAccount', ipAddress, req.headers['user-agent']);
     if (isNewDev) {
+      account.lastNotifiedDevice = new Date();
+      await school.save();
       await Notification.insert({
         recipient: account._id,
         recipientModel: 'SchoolAccount',
-        recipientRole: account.role.name, // Thêm dòng này
+        recipientRole: account.role.name,
         type: 'account',
-        content: notificationMessages.account.newDeviceLogin()  // Sử dụng key từ notificationMessages
+        content: notificationMessages.account.newDeviceLogin()
       });
     }
 
@@ -477,29 +483,29 @@ router.post('/register/admin', registerAdmin);
  *                     type: string
  */
 const getCompanies = async (req, res) => {
-    try {
-        const { query } = req.query;
-        let companies;
+  try {
+    const { query } = req.query;
+    let companies;
 
-        if (!query || query.length < 2) {
-            return res.status(400).json({ message: 'Vui lòng nhập ít nhất 2 ký tự để tìm kiếm.' });
-        }
-
-        if (query.length === 24 && /^[0-9a-fA-F]{24}$/.test(query)) {
-            // Nếu query là một ID hợp lệ
-            companies = await Company.find({ _id: query }, 'id name logo');
-        } else {
-            // Tìm kiếm theo tên công ty
-            companies = await Company.find(
-                { name: { $regex: query, $options: 'i' } },
-                'id name logo'
-            ).limit(10);
-        }
-
-        res.status(200).json(companies);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
+    if (!query || query.length < 2) {
+      return res.status(400).json({ message: 'Vui lòng nhập ít nhất 2 ký tự để tìm kiếm.' });
     }
+
+    if (query.length === 24 && /^[0-9a-fA-F]{24}$/.test(query)) {
+      // Nếu query là một ID hợp lệ
+      companies = await Company.find({ _id: query }, 'id name logo');
+    } else {
+      // Tìm kiếm theo tên công ty
+      companies = await Company.find(
+        { name: { $regex: query, $options: 'i' } },
+        'id name logo'
+      ).limit(10);
+    }
+
+    res.status(200).json(companies);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 router.get('/companies', publicLimiter, getCompanies);
@@ -526,59 +532,59 @@ router.get('/companies', publicLimiter, getCompanies);
  *         description: Refresh token không hợp lệ
  */
 router.post('/refresh-token', async (req, res) => {
-    const { refreshToken } = req.body;
-    if (!refreshToken) {
-        return res.status(401).json({ message: 'Refresh token là bắt buộc' });
+  const { refreshToken } = req.body;
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'Refresh token là bắt buộc' });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    let user;
+
+    switch (decoded.model) {
+      case 'Admin':
+        user = await Admin.findById(decoded._id);
+        break;
+      case 'CompanyAccount':
+        const company = await Company.findById(decoded.companyId);
+        if (!company) {
+          return res.status(403).json({ message: 'Công ty không tồn tại' });
+        }
+        user = company.accounts.id(decoded._id);
+        if (!user) {
+          return res.status(403).json({ message: 'Tài khoản không tồn tại' });
+        }
+        break;
+      case 'SchoolAccount':
+        const school = await School.findById(decoded.schoolId);
+        if (school) {
+          user = school.accounts.id(decoded._id);
+        }
+        break;
+      case 'Student':
+        user = await Student.findById(decoded._id);
+        break;
+      default:
+        return res.status(403).json({ message: 'Loại người dùng không hợp lệ' });
     }
 
-    try {
-        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-        let user;
-
-        switch (decoded.model) {
-            case 'Admin':
-                user = await Admin.findById(decoded._id);
-                break;
-            case 'CompanyAccount':
-                const company = await Company.findById(decoded.companyId);
-                if (!company) {
-                    return res.status(403).json({ message: 'Công ty không tồn tại' });
-                }
-                user = company.accounts.id(decoded._id);
-                if (!user) {
-                    return res.status(403).json({ message: 'Tài khoản không tồn tại' });
-                }
-                break;
-            case 'SchoolAccount':
-                const school = await School.findById(decoded.schoolId);
-                if (school) {
-                    user = school.accounts.id(decoded._id);
-                }
-                break;
-            case 'Student':
-                user = await Student.findById(decoded._id);
-                break;
-            default:
-                return res.status(403).json({ message: 'Loại người dùng không hợp lệ' });
-        }
-
-        if (!user || user.refreshToken !== refreshToken) {
-            return res.status(403).json({ message: 'Refresh token không hợp lệ' });
-        }
-
-        const ipAddress = req.ip;
-        const { accessToken, refreshToken: newRefreshToken } = generateTokens(user, decoded.model, ipAddress, { companyId: decoded.companyId });
-
-        user.refreshToken = newRefreshToken;
-        await (decoded.model === 'CompanyAccount' ? Company.findOneAndUpdate(
-            { _id: decoded.companyId, 'accounts._id': user._id },
-            { $set: { 'accounts.$.refreshToken': newRefreshToken } }
-        ) : user.save());
-
-        res.json({ accessToken, refreshToken: newRefreshToken });
-    } catch (error) {
-        res.status(403).json({ message: 'Refresh token không hợp lệ' });
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(403).json({ message: 'Refresh token không hợp lệ' });
     }
+
+    const ipAddress = req.ip;
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user, decoded.model, ipAddress, { companyId: decoded.companyId });
+
+    user.refreshToken = newRefreshToken;
+    await (decoded.model === 'CompanyAccount' ? Company.findOneAndUpdate(
+      { _id: decoded.companyId, 'accounts._id': user._id },
+      { $set: { 'accounts.$.refreshToken': newRefreshToken } }
+    ) : user.save());
+
+    res.json({ accessToken, refreshToken: newRefreshToken });
+  } catch (error) {
+    res.status(403).json({ message: 'Refresh token không hợp lệ' });
+  }
 });
 
 /**
@@ -603,58 +609,58 @@ router.post('/refresh-token', async (req, res) => {
  *         description: Refresh token không hợp lệ
  */
 router.post('/logout', async (req, res) => {
-    const { refreshToken } = req.body;
-    if (!refreshToken) {
-        return res.status(400).json({ message: 'Refresh token là bắt buộc' });
-    }
+  const { refreshToken } = req.body;
+  if (!refreshToken) {
+    return res.status(400).json({ message: 'Refresh token là bắt buộc' });
+  }
 
-    try {
-        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-        let user;
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    let user;
 
-        switch (decoded.model) {
-            case 'Admin':
-                user = await Admin.findById(decoded._id);
-                if (user) {
-                    user.refreshToken = null;
-                    await user.save();
-                }
-                break;
-            case 'CompanyAccount':
-                const company = await Company.findById(decoded.companyId);
-                if (company) {
-                    const account = company.accounts.id(decoded._id);
-                    if (account) {
-                        account.refreshToken = null;
-                        await company.save();
-                    }
-                }
-                break;
-            case 'SchoolAccount':
-                const school = await School.findById(decoded.schoolId);
-                if (school) {
-                    const account = school.accounts.id(decoded._id);
-                    if (account) {
-                        account.refreshToken = null;
-                        await school.save();
-                    }
-                }
-                break;
-            case 'Student':
-                user = await Student.findById(decoded._id);
-                if (user) {
-                    user.refreshToken = null;
-                    await user.save();
-                }
-                break;
-            default:
-                return res.status(400).json({ message: 'Loại người dùng không hợp lệ' });
+    switch (decoded.model) {
+      case 'Admin':
+        user = await Admin.findById(decoded._id);
+        if (user) {
+          user.refreshToken = null;
+          await user.save();
         }
-
-        res.json({ message: 'Đăng xuất thành công' });
-    } catch (error) {
-        res.status(401).json({ message: 'Refresh token không hợp lệ' });
+        break;
+      case 'CompanyAccount':
+        const company = await Company.findById(decoded.companyId);
+        if (company) {
+          const account = company.accounts.id(decoded._id);
+          if (account) {
+            account.refreshToken = null;
+            await company.save();
+          }
+        }
+        break;
+      case 'SchoolAccount':
+        const school = await School.findById(decoded.schoolId);
+        if (school) {
+          const account = school.accounts.id(decoded._id);
+          if (account) {
+            account.refreshToken = null;
+            await school.save();
+          }
+        }
+        break;
+      case 'Student':
+        user = await Student.findById(decoded._id);
+        if (user) {
+          user.refreshToken = null;
+          await user.save();
+        }
+        break;
+      default:
+        return res.status(400).json({ message: 'Loại người dùng không hợp lệ' });
     }
+
+    res.json({ message: 'Đăng xuất thành công' });
+  } catch (error) {
+    res.status(401).json({ message: 'Refresh token không hợp lệ' });
+  }
 });
 
 function parseUserAgent(ua) {

@@ -105,29 +105,14 @@ const router = express.Router();
  */
 router.get('/projects', optionalAuthenticate(Student, Student.findById), async (req, res) => {
   try {
-    const { query, filters: filtersString, page = 1, limit = 10 } = req.query;
+    const { query, skills, status, major, page = 1, limit = 10 } = req.query;
     let filters = {};
-    
-    if (filtersString && filtersString.trim() !== '') {
-      try {
-        filters = JSON.parse(decodeURIComponent(filtersString));
-      } catch (error) {
-        console.error('Lỗi khi phân tích chuỗi filters:', error);
-        return res.status(400).json({ message: 'Định dạng filters không hợp lệ' });
-      }
-    }
 
-    console.log('Filters sau khi parse:', filters);
+    if (skills) filters.skills = skills.split(',').map(id => new mongoose.Types.ObjectId(id));
+    if (status) filters.status = status;
+    if (major) filters.major = new mongoose.Types.ObjectId(major);
 
-    // Xử lý skills
-    if (filters.skills && Array.isArray(filters.skills)) {
-      filters.skills = filters.skills.map(id => new mongoose.Types.ObjectId(id));
-    }
-
-    // Xử lý major
-    if (filters.major && filters.major.trim() !== '') {
-      filters.major = new mongoose.Types.ObjectId(filters.major);
-    }
+    console.log('Filters sau khi xử lý:', filters);
 
     const result = await Project.getPublicProjects(query, filters, parseInt(page), parseInt(limit));
     res.json(result);
