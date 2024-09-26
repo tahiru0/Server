@@ -183,9 +183,12 @@ notificationSchema.statics.insert = async function(notificationData) {
       recipient = parent.accounts.id(notificationData.recipient);
       parentId = parent._id;
       recipientRole = recipient.role;
+    } else if (notificationData.recipientModel === 'Student') {
+      recipient = await mongoose.model('Student').findById(notificationData.recipient);
+      parentId = null;
     } else {
-      recipient = await mongoose.model(notificationData.recipientModel).findById(notificationData.recipient);
-      parentId = null; // Đặt parentId là null cho các trường hợp khác
+      console.error(`Loại người nhận không hợp lệ: ${notificationData.recipientModel}`);
+      return null;
     }
 
     if (!recipient) {
@@ -197,7 +200,7 @@ notificationSchema.statics.insert = async function(notificationData) {
       ...notificationData,
       recipient: notificationData.recipient,
       parentId: parentId,
-      recipientRole: recipientRole // Thêm recipientRole vào thông báo
+      recipientRole: recipientRole
     });
 
     await notification.save();

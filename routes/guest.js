@@ -112,8 +112,6 @@ router.get('/projects', optionalAuthenticate(Student, Student.findById), async (
     if (status) filters.status = status;
     if (major) filters.major = new mongoose.Types.ObjectId(major);
 
-    console.log('Filters sau khi xử lý:', filters);
-
     const result = await Project.getPublicProjects(query, filters, parseInt(page), parseInt(limit));
     res.json(result);
   } catch (error) {

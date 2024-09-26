@@ -112,9 +112,10 @@ router.post('/projects/:id/apply', authenticateStudent, async (req, res) => {
       return res.status(400).json({ error: 'Bạn đã ứng tuyển dự án này rồi' });
     }
 
-    // Kiểm tra xem dự án có thể nhận ứng viên không
-    if (!project.canAcceptApplicants()) {
-      return res.status(400).json({ error: 'Dự án hiện không nhận ứng viên' });
+        // Kiểm tra xem dự án có thể nhận ứng viên không
+    const acceptStatus = project.canAcceptApplicants();
+    if (!acceptStatus.canAccept) {
+      return res.status(400).json({ error: acceptStatus.reason });
     }
 
     project.applicants.push({ applicantId: req.user._id });

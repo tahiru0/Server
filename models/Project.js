@@ -500,12 +500,15 @@ projectSchema.methods.removeApplicant = async function (applicantId, reason = 'r
 
   await this.save();
 
-  // Tạo thông báo cho sinh viên
+  // Tạo thông báo chi tiết cho sinh viên
   let notificationContent;
-  if (reason === 'expired') {
+  const now = new Date();
+  if (reason === 'expired' || now > this.applicationEnd) {
     notificationContent = notificationMessages.project.applicationExpired(this.title);
-  } else {
+  } else if (reason === 'rejected') {
     notificationContent = notificationMessages.project.applicationRejected(this.title);
+  } else {
+    notificationContent = notificationMessages.project.applicationRemoved(this.title, reason);
   }
 
   await Notification.insert({
@@ -520,10 +523,19 @@ projectSchema.methods.removeApplicant = async function (applicantId, reason = 'r
 // Thêm phương thức để kiểm tra xem dự án có thể nhận ứng viên không
 projectSchema.methods.canAcceptApplicants = function () {
   const now = new Date();
-  return this.isRecruiting &&
-    this.currentApplicants < this.maxApplicants &&
-    now >= this.applicationStart &&
-    now <= this.applicationEnd;
+  if (!this.isRecruiting) {
+    return { canAccept: false, reason: 'Dự án hiện không trong giai đoạn tuyển dụng' };
+  }
+  if (this.currentApplicants >= this.maxApplicants) {
+    return { canAccept: false, reason: 'Dự án đã đạt số lượng ứng viên tối đa' };
+  }
+  if (now < this.applicationStart) {
+    return { canAccept: false, reason: 'Thời gian ứng tuyển chưa bắt đầu' };
+  }
+  if (now > this.applicationEnd) {
+    return { canAccept: false, reason: 'Thời gian ứng tuyển đã kết thúc' };
+  }
+  return { canAccept: true };
 };
 
 // Thêm phương thức để tự động đóng tuyển dụng nếu đủ người hoặc hết thời gian
@@ -609,8 +621,14 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
       isRecruiting: project.isRecruiting,
       availablePositions: availablePositions,
       pinnedProject: project.pinnedProject,
-      relatedMajors: project.relatedMajors.map(major => major.name),
-      requiredSkills: project.requiredSkills.map(skill => skill.name),
+      relatedMajors: project.relatedMajors.map(major => ({
+        _id: major._id,
+        name: major.name
+      })),
+      requiredSkills: project.requiredSkills.map(skill => ({
+        _id: skill._id,
+        name: skill.name
+      })),
       applicationStart: project.applicationStart,
       applicationEnd: project.applicationEnd,
       score: score
@@ -884,6 +902,13 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
   if (student) {
     await student.removeCurrentProject();
   }
+
+  // Xóa mềm các task liên quan đến sinh viên
+  const Task = mongoose.model('Task');
+  await Task.updateMany(
+    { project: this._id, assignedTo: studentId },
+    { $set: { isDeleted: true } }
+  );
 
   // Tạo thông báo cho sinh viên
   let notificationContent;
