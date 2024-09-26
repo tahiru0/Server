@@ -158,17 +158,6 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
       await newCompany.save({ session });
     }
 
-    const activationLink = `http://localhost:5000/api/company/activate/${newCompany.accounts[0].activationToken}`;
-    await sendEmail(
-      email,
-      'Xác nhận tài khoản của bạn',
-      accountActivationTemplate({
-        accountName: accountName,
-        companyName: companyName,
-        activationLink: activationLink
-      })
-    );
-
     await session.commitTransaction();
     session.endSession();
 
@@ -176,6 +165,19 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
       message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
       companyId: newCompany._id
     });
+
+    // Gửi email xác nhận sau khi đã trả về response
+    const activationLink = `http://localhost:5000/api/company/activate/${newCompany.accounts[0].activationToken}`;
+    sendEmail(
+      email,
+      'Xác nhận tài khoản công ty của bạn',
+      accountActivationTemplate({
+        accountName: accountName,
+        companyName: companyName,
+        activationLink: activationLink
+      })
+    ).catch(error => console.error('Lỗi khi gửi email:', error));
+
   } catch (error) {
     await session.abortTransaction();
     session.endSession();

@@ -119,6 +119,9 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
     const { name, address, accountName, email, password } = req.body;
 
     try {
+        const activationToken = crypto.randomBytes(32).toString('hex');
+        const tokenExpiration = Date.now() + 3600000; // 1 giờ
+
         const newSchool = new School({
             name: name,
             address: address,
@@ -129,8 +132,8 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
                 email: email,
                 password: password,
                 role: { name: 'admin' },
-                activationToken: crypto.randomBytes(32).toString('hex'),
-                tokenExpiration: Date.now() + 3600000 // 1 giờ
+                activationToken,
+                tokenExpiration
             }]
         });
 
@@ -147,17 +150,6 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
             await newSchool.save({ session });
         }
 
-        const activationLink = `${process.env.API_URL}/api/school/activate/${newSchool.accounts[0].activationToken}`;
-        await sendEmail(
-            email,
-            'Xác nhận tài khoản trường học của bạn',
-            accountActivationTemplate({
-                accountName: accountName,
-                companyName: name,
-                activationLink: activationLink
-            })
-        );
-
         await session.commitTransaction();
         session.endSession();
 
@@ -165,6 +157,19 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
             message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác nhận tài khoản.',
             schoolId: newSchool._id
         });
+
+        // Gửi email xác nhận sau khi đã trả về response
+        const activationLink = `http://localhost:5000/api/school/activate/${activationToken}`;
+        sendEmail(
+            email,
+            'Xác nhận tài khoản trường học của bạn',
+            accountActivationTemplate({
+                accountName: accountName,
+                companyName: name,
+                activationLink: activationLink
+            })
+        ).catch(error => console.error('Lỗi khi gửi email:', error));
+
     } catch (error) {
         await session.abortTransaction();
         session.endSession();
@@ -964,6 +969,10 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
             return res.status(400).json({ message: 'Vui lòng cập nhật quy tắc mật khẩu trước khi tạo sinh viên.' });
         }
 
+        const passwordRule = school.studentApiConfig.passwordRule.template;
+        let uploadedCount = 0;
+        let updatedCount = 0;
+
         for (let i = 1; i < data.length; i++) {
             const row = data[i];
             try {
@@ -973,7 +982,6 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
                     studentId: row[fieldIndexes.studentid],
                     dateOfBirth: row[fieldIndexes.dateofbirth],
                     major: row[fieldIndexes.major],
-                    password: row[fieldIndexes.password] // Thêm trường password nếu có trong file Excel
                 };
 
                 const requiredFieldsInRow = Object.keys(studentData).filter(key => key !== 'password' && !studentData[key]);
@@ -994,9 +1002,19 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
                     if (!existingStudent.isApproved) {
                         existingStudent.isApproved = true;
                         await existingStudent.save();
-                        results.push({ ...existingStudent.toObject(), password: 'Đã tồn tại' });
+                        results.push({
+                            ...studentData,
+                            _id: existingStudent._id,
+                            status: 'Đã cập nhật',
+                            password: 'Không thay đổi'
+                        });
+                        updatedCount++;
                     } else {
-                        issues.push({ row: i + 1, issue: 'Sinh viên đã tồn tại và đã được duyệt' });
+                        issues.push({
+                            row: i + 1,
+                            issue: 'Sinh viên đã tồn tại và đã được duyệt',
+                            data: studentData
+                        });
                     }
                 } else {
                     const newStudent = new Student({
@@ -1006,32 +1024,44 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
                         isApproved: true
                     });
 
-                    let usedPassword;
-                    if (studentData.password) {
-                        newStudent.password = studentData.password;
-                        usedPassword = studentData.password;
-                    } else {
-                        const defaultPassword = await newStudent.generateDefaultPassword();
-                        newStudent.password = defaultPassword;
-                        usedPassword = defaultPassword;
-                    }
+                    const defaultPassword = await newStudent.generateDefaultPassword();
+                    newStudent.password = defaultPassword;
 
                     await newStudent.save();
-                    results.push({ ...newStudent.toObject(), password: usedPassword });
+                    results.push({
+                        ...studentData,
+                        _id: newStudent._id,
+                        status: 'Đã tạo mới',
+                        password: defaultPassword
+                    });
+                    uploadedCount++;
                 }
             } catch (error) {
                 const { message } = handleError(error);
-                issues.push({ row: i + 1, issue: message });
+                issues.push({
+                    row: i + 1,
+                    issue: message,
+                    data: {
+                        name: row[fieldIndexes.name],
+                        email: row[fieldIndexes.email],
+                        studentId: row[fieldIndexes.studentid],
+                        dateOfBirth: row[fieldIndexes.dateofbirth],
+                        major: row[fieldIndexes.major],
+                    }
+                });
             }
         }
 
         res.status(201).json({
-            message: 'Tải lên và tạo sinh viên thành công',
-            totalProcessed: data.length - 1,
-            successCount: results.length,
-            issueCount: issues.length,
+            message: 'Tải lên và xử lý sinh viên thành công',
+            totalRows: data.length - 1,
+            uploadedCount: uploadedCount,
+            updatedCount: updatedCount,
+            skippedCount: issues.length,
+            successCount: uploadedCount + updatedCount,
+            processedData: results,
             issues: issues,
-            results: results
+            passwordNote: `Mật khẩu được tạo theo quy tắc: ${passwordRule}. Trong đó, '\${ngaysinh}' sẽ được thay thế bằng ngày sinh của sinh viên theo định dạng DDMMYYYY. Ví dụ: nếu quy tắc là 'School\${ngaysinh}' và ngày sinh là 01/05/2000, mật khẩu sẽ là 'School01052000'.`
         });
     } catch (error) {
         const { status, message } = handleError(error);

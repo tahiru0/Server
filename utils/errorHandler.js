@@ -69,8 +69,11 @@ export const handleError = (error) => {
     }
   
     if (error.name === 'ValidationError') {
-        const messages = Object.keys(error.errors).map(key => `${key}:${error.errors[key].message}`);
-        return { status: 400, message: messages.join(', ') };
+        const messages = Object.values(error.errors).map(err => {
+            // Loại bỏ tên trường và dấu hai chấm từ thông báo lỗi
+            return err.message.replace(/^[^:]+:\s*/, '');
+        });
+        return { status: 400, message: messages.join('. ') };
     }
   
     // Thay đổi thông báo lỗi 500 để không tiết lộ chi tiết
