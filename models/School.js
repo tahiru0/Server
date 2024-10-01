@@ -31,7 +31,7 @@ const SchoolAccountSchema = new Schema({
         unique: [true, 'Email đã tồn tại'],
         lowercase: true,
         trim: true,
-        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Vui lòng nhập email hợp lệ']
+        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,})+$/, 'Vui lòng nhập email hợp lệ']
     },
     passwordHash: {
         type: String,

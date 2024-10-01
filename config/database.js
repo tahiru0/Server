@@ -12,6 +12,7 @@ export default async function connectDatabase() {
     });
     console.log(gradient.vice('Kết nối thành công đến MongoDB với Mongoose'));
   } catch (error) {
+    console.error('Lỗi khi kết nối đến MongoDB URI:', error);
     console.warn(chalk.yellow('Không thể kết nối đến MongoDB URI, đang thử kết nối local...'));
     try {
       await mongoose.connect(localURI, {
