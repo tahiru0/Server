@@ -16,6 +16,7 @@ import Notification from '../models/Notification.js';
 import Student from '../models/Student.js';
 import authenticate from '../middlewares/authenticate.js';
 import Admin from '../models/Admin.js';
+import { useImageUpload, handleUploadError } from '../utils/upload.js';
 
 dotenv.config();
 
@@ -161,6 +162,38 @@ router.delete('/companies/:id', authenticateAdmin, async (req, res, next) => {
     res.status(200).json({ message: 'Đã xóa công ty thành công' });
   } catch (error) {
     next(error);
+  }
+});
+
+const schoolLogoUpload = useImageUpload('schools', 'logos');
+
+router.put('/schools/:id', authenticateAdmin, schoolLogoUpload.single('logo'), handleUploadError, async (req, res) => {
+  try {
+    const schoolId = req.params.id;
+    const updateData = req.body;
+    
+    // Xử lý upload logo nếu có
+    if (req.file) {
+      updateData.logo = path.join('/uploads', 'schools', 'logos', req.file.filename);
+    }
+
+    const allowedFields = ['name', 'address', 'website', 'description', 'logo'];
+    const filteredData = Object.keys(updateData)
+      .filter(key => allowedFields.includes(key))
+      .reduce((obj, key) => {
+        obj[key] = updateData[key];
+        return obj;
+      }, {});
+
+    const updatedSchool = await School.findByIdAndUpdate(schoolId, filteredData, { new: true, runValidators: true });
+
+    if (!updatedSchool) {
+      return res.status(404).json({ message: 'Không tìm thấy trường học' });
+    }
+
+    res.json(updatedSchool);
+  } catch (error) {
+    handleError(error, res);
   }
 });
 

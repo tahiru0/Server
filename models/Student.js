@@ -179,13 +179,13 @@ StudentSchema.statics.hashPassword = function (password) {
 StudentSchema.methods.updateStudentInfo = async function (updateData) {
     const allowedFields = ['name', 'email', 'studentId', 'school', 'major', 'skills', 'experience', 'education', 'cv', 'avatar'];
     for (const key in updateData) {
-      if (allowedFields.includes(key)) {
-        this[key] = updateData[key];
-      }
+        if (allowedFields.includes(key)) {
+            this[key] = updateData[key];
+        }
     }
     await this.save();
     return this;
-  };
+};
 
 StudentSchema.statics.getImportantStudentInfo = async function (filters = {}) {
     const searchCriteria = { ...filters, isDeleted: false };
@@ -538,60 +538,68 @@ StudentSchema.methods.getCurrentProjectDetails = async function () {
     };
 };
 StudentSchema.methods.getAssignedTasks = async function () {
-    return await mongoose.model('Task').find({ assignedTo: this._id }).populate('project', 'title');
+    return await mongoose.model('Task').find({
+        assignedTo: this._id,
+        isStudentActive: true
+    }).populate('project', 'title');
 };
 
 StudentSchema.methods.updateTaskStatus = async function (taskId, status) {
-    const task = await mongoose.model('Task').findOne({ _id: taskId, assignedTo: this._id });
+    const task = await mongoose.model('Task').findOne({
+        _id: taskId,
+        assignedTo: this._id,
+        isStudentActive: true
+    });
     if (!task) {
-        throw new Error('Không tìm thấy task hoặc task không được giao cho sinh viên này');
+        throw new Error('Không tìm thấy task hoặc task không được giao cho sinh viên này hoặc sinh viên không còn trong dự án');
     }
     task.status = status;
     await task.save();
     return task;
 };
-StudentSchema.methods.addAppliedProject = async function(projectId) {
+
+StudentSchema.methods.addAppliedProject = async function (projectId) {
     if (this.isApproved) {
-      if (!this.appliedProjects.includes(projectId)) {
-        this.appliedProjects.push(projectId);
-        await this.save();
-      }
+        if (!this.appliedProjects.includes(projectId)) {
+            this.appliedProjects.push(projectId);
+            await this.save();
+        }
     }
-  };
-  
-  StudentSchema.methods.removeAppliedProject = async function(projectId) {
+};
+
+StudentSchema.methods.removeAppliedProject = async function (projectId) {
     this.appliedProjects = this.appliedProjects.filter(id => id.toString() !== projectId.toString());
     await this.save();
-  };
-  
-  StudentSchema.methods.setCurrentProject = async function(projectId) {
+};
+
+StudentSchema.methods.setCurrentProject = async function (projectId) {
     if (this.isApproved) {
-      this.currentProject = projectId;
-      await this.save();
+        this.currentProject = projectId;
+        await this.save();
     }
-  };
-  
-  StudentSchema.methods.removeCurrentProject = async function() {
+};
+
+StudentSchema.methods.removeCurrentProject = async function () {
     this.currentProject = null;
     await this.save();
-  };
-  
-  // Middleware để đảm bảo chỉ sinh viên đã được phê duyệt mới có thể được thêm vào dự án
-  StudentSchema.pre('save', async function(next) {
+};
+
+// Middleware để đảm bảo chỉ sinh viên đã được phê duyệt mới có thể được thêm vào dự án
+StudentSchema.pre('save', async function (next) {
     if (this.isModified('isApproved') && this.isApproved) {
-      // Nếu sinh viên vừa được phê duyệt, cập nhật tất cả các dự án liên quan
-      const Project = mongoose.model('Project');
-      await Project.updateMany(
-        { 'applicants.applicantId': this._id },
-        { $set: { 'applicants.$.isApproved': true } }
-      );
-      await Project.updateMany(
-        { 'selectedApplicants.studentId': this._id },
-        { $set: { 'selectedApplicants.$.isApproved': true } }
-      );
+        // Nếu sinh viên vừa được phê duyệt, cập nhật tất cả các dự án liên quan
+        const Project = mongoose.model('Project');
+        await Project.updateMany(
+            { 'applicants.applicantId': this._id },
+            { $set: { 'applicants.$.isApproved': true } }
+        );
+        await Project.updateMany(
+            { 'selectedApplicants.studentId': this._id },
+            { $set: { 'selectedApplicants.$.isApproved': true } }
+        );
     }
     next();
-  });
+});
 
 // Đảm bảo rằng các getter được bao gồm khi chuyển đổi sang JSON
 StudentSchema.set('toJSON', { getters: true });

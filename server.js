@@ -5,7 +5,6 @@ import gradient from 'gradient-string';
 import configureMiddleware from './config/middleware.js';
 import configureRoutes from './config/routes.js';
 import connectDatabase from './config/database.js';
-import { scheduleRecruitmentStatusCheck } from './utils/scheduledTasks.js';
 
 dotenv.config();
 
@@ -26,8 +25,6 @@ connectDatabase()
       console.log(`Mở trang Swagger UI tại: http://localhost:${port}/api-docs`);
     });
 
-    // Lên lịch kiểm tra trạng thái tuyển dụng
-    scheduleRecruitmentStatusCheck();
   })
   .catch(error => {
     console.error(chalk.red('Không thể khởi động server:'), error);

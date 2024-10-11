@@ -225,21 +225,29 @@ router.post('/create-skills', async (req, res) => {
   session.startTransaction();
 
   try {
-    for (let i = 0; i < 10; i++) {
-      const skill = new Skill({
-        name: faker.hacker.noun(),
-        description: faker.hacker.phrase(),
-      });
+    const existingSkills = await Skill.find({}, 'name');
+    const existingSkillNames = new Set(existingSkills.map(skill => skill.name));
+    const createdSkills = new Set();
 
-      await skill.save({ session });
+    while (createdSkills.size < 10) {
+      const skillName = faker.helpers.arrayElement(realSkills);
+      if (!existingSkillNames.has(skillName) && !createdSkills.has(skillName)) {
+        const skill = new Skill({
+          name: skillName,
+          description: faker.lorem.sentence(),
+        });
+
+        await skill.save({ session });
+        createdSkills.add(skillName);
+      }
     }
 
     await session.commitTransaction();
-    res.status(200).json({ message: 'Kỹ năng ngẫu nhiên đã được tạo thành công' });
+    res.status(200).json({ message: 'Kỹ năng thực tế đã được tạo thành công' });
   } catch (error) {
-    console.error('Lỗi khi tạo kỹ năng ngẫu nhiên:', error);
+    console.error('Lỗi khi tạo kỹ năng thực tế:', error);
     await session.abortTransaction();
-    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo kỹ năng ngẫu nhiên', error: error.message });
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi tạo kỹ năng thực tế', error: error.message });
   } finally {
     session.endSession();
   }
@@ -590,7 +598,12 @@ router.post('/create-random-projects', async (req, res) => {
 
       const mentor = faker.helpers.arrayElement(mentors);
       const major = faker.helpers.arrayElement(majors);
-      const relatedSkills = skills.filter(skill => skill.major && skill.major.toString() === major._id.toString());
+      let relatedSkills = skills.filter(skill => skill.major && skill.major.toString() === major._id.toString());
+
+      // Nếu không có kỹ năng liên quan, sử dụng tất cả các kỹ năng
+      if (relatedSkills.length === 0) {
+        relatedSkills = skills;
+      }
 
       const isRecruiting = faker.datatype.boolean();
       const applicants = [];

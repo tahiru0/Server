@@ -1146,26 +1146,33 @@ router.get('/students/:id', authenticateSchoolAccount, async (req, res) => {
 
 // Cập nhật sinh viên
 router.put('/students/:id', authenticateSchoolAdmin, async (req, res) => {
-    const { id } = req.params;
-    const { name, email, password, studentId, dateOfBirth, major } = req.body;
-    const schoolId = req.user.school;
-
     try {
-        const student = await Student.findOneAndUpdate(
-            { _id: id, school: schoolId, isDeleted: false },
-            { name, email, password, studentId, dateOfBirth, major },
-            { new: true }
-        );
-
-        if (!student) {
-            return res.status(404).json({ message: 'Không tìm thấy sinh viên.' });
-        }
-
-        res.status(200).json(student);
+      const { id } = req.params;
+      const updateData = req.body;
+  
+      if (updateData.dateOfBirth === null) {
+        delete updateData.dateOfBirth;
+      } else if (updateData.dateOfBirth) {
+        updateData.dateOfBirth = new Date(updateData.dateOfBirth);
+      }
+  
+      const student = await Student.findById(id);
+      if (!student) {
+        return res.status(404).json({ message: 'Không tìm thấy sinh viên' });
+      }
+  
+      if (student.school.toString() !== req.user.school.toString()) {
+        return res.status(403).json({ message: 'Bạn không có quyền cập nhật sinh viên này' });
+      }
+  
+      Object.assign(student, updateData);
+      await student.save();
+  
+      res.json(student);
     } catch (error) {
-        res.status(400).json({ message: error.message });
+      handleError(error, res);
     }
-});
+  });
 
 // Xóa sinh viên
 router.delete('/students/:id', authenticateSchoolAdmin, async (req, res) => {

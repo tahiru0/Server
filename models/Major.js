@@ -24,7 +24,7 @@ const majorSchema = new mongoose.Schema({
     maxlength: [500, 'Mô tả ngành học không được vượt quá 500 ký tự'],
     set: (value) => sanitizeHtml(value, sanitizeOptions),
   }
-}, { toJSON: { getters: true }, toObject: { getters: true } });
+}, { toJSON: { getters: true, virtuals: false }, toObject: { getters: true, virtuals: false } });
 
 // Thêm bảo vệ schema
 majorSchema.set('validateBeforeSave', true);

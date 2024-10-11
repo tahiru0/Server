@@ -77,6 +77,10 @@ const taskSchema = new mongoose.Schema({
       message: 'Người được giao task phải là một trong những sinh viên đã được chọn cho dự án'
     }
   },
+  isStudentActive: {
+    type: Boolean,
+    default: true
+  },
   isDeleted: { type: Boolean, default: false }, // Soft delete
   ratedAt: {
     type: Date
@@ -165,6 +169,17 @@ taskSchema.pre('save', async function (next) {
 
   if (this.isModified('rating') && !this.ratedAt) {
     this.ratedAt = new Date();
+  }
+  
+  if (this.isModified('assignedTo') || this.isNew) {
+    const Project = mongoose.model('Project');
+    const project = await Project.findById(this.project);
+    if (project) {
+      const isStudentInProject = project.selectedApplicants.some(
+        applicant => applicant.studentId.toString() === this.assignedTo.toString()
+      );
+      this.isStudentActive = isStudentInProject;
+    }
   }
   
   next();

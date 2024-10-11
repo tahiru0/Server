@@ -223,10 +223,11 @@ CompanyAccountSchema.set('toObject', { getters: true });
 CompanyAccountSchema.pre('save', async function(next) {
     if (this.isModified('isActive') && !this.isActive) {
         const Project = mongoose.model('Project');
-        const activeProjects = await Project.countDocuments({ mentor: this._id, status: 'Open' });
-        if (activeProjects > 0) {
-            const error = new Error('Không thể deactive tài khoản đang phụ trách dự án.');
-            error.status = 400; // Hoặc bất kỳ mã trạng thái nào bạn muốn
+        const activeProjects = await Project.find({ mentor: this._id, status: 'Open' }).select('title');
+        if (activeProjects.length > 0) {
+            const projectNames = activeProjects.map(project => project.title).join(', ');
+            const error = new Error(`Không thể deactive tài khoản đang phụ trách (các) dự án: ${projectNames}`);
+            error.status = 400;
             return next(error);
         }
     }

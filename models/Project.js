@@ -197,6 +197,10 @@ const projectSchema = new mongoose.Schema({
     removedAt: { type: Date, default: Date.now },
     reason: String
   }],
+  isDeleted: {
+    type: Boolean,
+    default: false
+  }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 projectSchema.methods.pinProject = async function () {
@@ -222,32 +226,36 @@ projectSchema.pre('save', function (next) {
   next();
 });
 
-projectSchema.pre('updateOne', function (next) {
+projectSchema.pre('updateOne', async function (next) {
   const update = this.getUpdate();
   if (update.$set && update.$set.status === 'Closed') {
     return next();
   }
-  this.model.findOne(this.getQuery(), (err, project) => {
-    if (err) return next(err);
+  try {
+    const project = await this.model.findOne(this.getQuery());
     if (project.status === 'Closed') {
       return next(new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này'));
     }
     next();
-  });
+  } catch (err) {
+    next(err);
+  }
 });
 
-projectSchema.pre('findOneAndUpdate', function (next) {
+projectSchema.pre('findOneAndUpdate', async function (next) {
   const update = this.getUpdate();
   if (update.$set && update.$set.status === 'Closed') {
     return next();
   }
-  this.model.findOne(this.getQuery(), (err, project) => {
-    if (err) return next(err);
+  try {
+    const project = await this.model.findOne(this.getQuery());
     if (project.status === 'Closed') {
       return next(new Error('Dự án đã bị tạm dừng, không thể thực hiện hành động này'));
     }
     next();
-  });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Cập nhật các phương thức để kiểm tra trạng thái
@@ -425,19 +433,19 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
   }
 
   const student = await mongoose.model('Student').findById(applicantId).lean();
-if (!student) {
-  const error = new Error('Không tìm thấy sinh viên');
-  error.status = 400;
-  throw error;
-}
+  if (!student) {
+    const error = new Error('Không tìm thấy sinh viên');
+    error.status = 400;
+    throw error;
+  }
 
-console.log('Student data:', JSON.stringify(student, null, 2));
+  console.log('Student data:', JSON.stringify(student, null, 2));
 
-if (student.currentProject) {
-  const error = new Error('Sinh viên đã được chấp nhận vào một dự án khác');
-  error.status = 400;
-  throw error;
-}
+  if (student.currentProject) {
+    const error = new Error('Sinh viên đã được chấp nhận vào một dự án khác');
+    error.status = 400;
+    throw error;
+  }
 
   this.selectedApplicants.push({
     studentId: applicant.applicantId,
@@ -469,7 +477,7 @@ if (student.currentProject) {
   return this;
 };
 
-projectSchema.methods.checkDuplicateSelectedApplicants = async function(applicantId) {
+projectSchema.methods.checkDuplicateSelectedApplicants = async function (applicantId) {
   const existingProject = await mongoose.model('Project').findOne({
     'selectedApplicants.studentId': applicantId,
     _id: { $ne: this._id }
@@ -584,7 +592,7 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
   }
 
   if (filters.skills && filters.skills.length > 0) {
-    searchCriteria.requiredSkills = { $in: filters.skills };
+    searchCriteria.requiredSkills = { $all: filters.skills };
   }
 
   const skip = (page - 1) * limit;
@@ -867,6 +875,12 @@ projectSchema.methods.changeMentor = async function (newMentorId, oldMentorId, c
     relatedId: this._id
   });
 
+  // Cập nhật trạng thái của các task
+  await Task.updateMany(
+    { project: this._id, assignedTo: studentId },
+    { $set: { isStudentActive: false } }
+  );
+
   // Tạo thông báo cho mentor cũ
   await Notification.insert({
     recipient: oldMentorId,
@@ -927,6 +941,71 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
   });
 };
 
+// Thêm hàm updateRecruitmentStatus vào schema
+projectSchema.methods.updateRecruitmentStatus = function() {
+  const now = new Date();
+  if (this.isRecruiting && now > this.applicationEnd) {
+    this.isRecruiting = false;
+    return true; // Trạng thái đã thay đổi
+  }
+  return false; // Trạng thái không thay đổi
+};
+
+// Thêm middleware pre cho find
+projectSchema.pre('find', function(next) {
+  this.find({ isDeleted: false });
+  next();
+});
+
+projectSchema.post('find', async function(docs) {
+  if (Array.isArray(docs)) {
+    const now = new Date();
+    const updatedDocs = docs.filter(doc => doc.isRecruiting && now > doc.applicationEnd);
+    
+    for (const doc of updatedDocs) {
+      await this.model.updateOne({ _id: doc._id }, { isRecruiting: false });
+    }
+  }
+});
+
+// Thêm middleware pre cho findOne
+projectSchema.pre('findOne', function(next) {
+  this.findOne({ isDeleted: false });
+  next();
+});
+
+// Thêm middleware post cho findOne
+projectSchema.post('findOne', async function(doc) {
+  if (doc) {
+    const now = new Date();
+    if (doc.isRecruiting && now > doc.applicationEnd) {
+      doc.isRecruiting = false;
+      await doc.save();
+    }
+  }
+});
+
+// Cập nhật middleware pre cho findOneAndUpdate
+projectSchema.pre('findOneAndUpdate', async function(next) {
+  const update = this.getUpdate();
+  if (update.$set) {
+    Object.keys(update.$set).forEach(key => {
+      if (update.$set[key] === null || update.$set[key] === '') {
+        delete update.$set[key];
+      }
+    });
+  }
+
+  const doc = await this.model.findOne(this.getQuery());
+  if (doc) {
+    const now = new Date();
+    if (doc.isRecruiting && now > doc.applicationEnd) {
+      update.$set = update.$set || {};
+      update.$set.isRecruiting = false;
+    }
+  }
+  next();
+});
 
 
 const Project = mongoose.model('Project', projectSchema);

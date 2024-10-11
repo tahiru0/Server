@@ -30,7 +30,6 @@ const isNewDevice = async (user, userModel, ipAddress, userAgent) => {
 
   return (
     lastLogin.ipAddress !== ipAddress ||
-    lastLogin.deviceInfo.browser !== deviceInfo.browser ||
     lastLogin.deviceInfo.os !== deviceInfo.os
   );
 };
