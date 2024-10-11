@@ -15,6 +15,12 @@ const skillSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Tên kỹ năng không được vượt quá 50 ký tự'],
     set: (value) => sanitizeHtml(value, sanitizeOptions),
+    validate: {
+      validator: function(v) {
+        return /^[\p{L}\p{N}\s]+$/u.test(v);
+      },
+      message: props => `${props.value} chứa ký tự không hợp lệ. Chỉ được phép sử dụng chữ, số và khoảng trắng.`
+    }
   },
   description: {
     type: String,

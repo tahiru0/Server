@@ -1,10 +1,29 @@
+const entityMap = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+    '/': '&#x2F;',
+    '`': '&#x60;',
+    '=': '&#x3D;'
+};
+
 const escapeHtml = (unsafe) => {
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+    if (typeof unsafe !== 'string') return unsafe;
+    return unsafe.replace(/[&<>"'`=\/]/g, function (s) {
+        if (s === '&') {
+            const nextFive = unsafe.substr(unsafe.indexOf(s) + 1, 5);
+            if (['amp;', 'lt;', 'gt;', 'quot;'].includes(nextFive) || 
+                nextFive.startsWith('#39;') || 
+                nextFive.startsWith('#x2F') || 
+                nextFive.startsWith('#x60') || 
+                nextFive.startsWith('#x3D')) {
+                return s;
+            }
+        }
+        return entityMap[s];
+    });
 };
 
 const sanitizeObject = (obj) => {
@@ -12,7 +31,7 @@ const sanitizeObject = (obj) => {
         return obj;
     }
 
-    const sanitized = {};
+    const sanitized = Array.isArray(obj) ? [] : {};
     for (const [key, value] of Object.entries(obj)) {
         if (typeof value === 'string') {
             sanitized[key] = escapeHtml(value);
