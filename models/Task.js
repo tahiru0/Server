@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
 import Notification from './Notification.js';
-import sanitizeHtml from 'sanitize-html';
 import notificationMessages from '../utils/notificationMessages.js';
 
 const sanitizeOptions = {
@@ -9,20 +8,35 @@ const sanitizeOptions = {
   disallowedTagsMode: 'discard'
 };
 
+const questionSchema = new mongoose.Schema({
+  question: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+  options: [{
+    type: String,
+    required: true,
+    trim: true,
+  }],
+  correctAnswer: {
+    type: Number,
+    required: true
+  }
+});
+
 const taskSchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'Tên công việc không được để trống'],
     trim: true,
     maxlength: [100, 'Tên công việc không được vượt quá 100 ký tự'],
-    set: (value) => sanitizeHtml(value, sanitizeOptions),
   },
   description: {
     type: String,
     required: [true, 'Mô tả công việc không được để trống'],
     trim: true,
     maxlength: [1000, 'Mô tả không được vượt quá 1000 ký tự'],
-    set: (value) => sanitizeHtml(value, sanitizeOptions),
   },
   deadline: {
     type: Date,
@@ -37,10 +51,10 @@ const taskSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: {
-      values: ['Pending', 'In Progress', 'Completed', 'Overdue'],
+      values: ['Assigned', 'Submitted', 'Evaluated', 'Overdue', 'Completed'],
       message: '{VALUE} không phải là trạng thái hợp lệ'
     },
-    default: 'Pending'
+    default: 'Assigned'
   },
   rating: {
     type: Number,
@@ -56,7 +70,6 @@ const taskSchema = new mongoose.Schema({
   comment: {
     type: String,
     maxlength: [1000, 'Bình luận không được vượt quá 1000 ký tự'],
-    set: (value) => sanitizeHtml(value, sanitizeOptions),
   },
   project: {
     type: mongoose.Schema.Types.ObjectId,
@@ -84,15 +97,53 @@ const taskSchema = new mongoose.Schema({
   isDeleted: { type: Boolean, default: false }, // Soft delete
   ratedAt: {
     type: Date
+  },
+  lms: [{
+    type: mongoose.Schema.Types.Mixed
+  }],
+  taskType: {
+    type: String,
+    enum: ['general', 'multipleChoice', 'essay', 'fileUpload'],
+    default: 'general'
+  },
+  questions: [questionSchema],
+  fileRequirements: {
+    maxSize: {
+      type: Number,
+      max: 1024, // 1GB in MB
+      required: function() { return this.taskType === 'fileUpload'; }
+    },
+    allowedExtensions: [{
+      type: String,
+      required: function() { return this.taskType === 'fileUpload'; }
+    }]
+  },
+  studentAnswer: {
+    type: mongoose.Schema.Types.Mixed
+  },
+  studentFile: {
+    type: String
+  },
+  materialFile: {
+    type: String,
+    default: null
+  },
+  feedback: {
+    type: String,
+    default: null
   }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
-// Method to check and update task status if overdue
+// Phương thức kiểm tra và cập nhật trạng thái task nếu quá hạn
 taskSchema.methods.updateStatusIfOverdue = function () {
   const now = new Date();
-  if (this.deadline < now && this.status !== 'Completed') {
+  if (this.deadline < now && this.status !== 'Evaluated' && this.status !== 'Completed') {
     this.status = 'Overdue';
   }
+};
+
+taskSchema.methods.canSubmit = function () {
+  return this.status === 'Assigned' && new Date() <= this.deadline;
 };
 
 // Middleware to check task status before saving
@@ -182,6 +233,29 @@ taskSchema.pre('save', async function (next) {
     }
   }
   
+  if (this.isModified('status')) {
+    if (this.status === 'Submitted' && this.previousStatus === 'Assigned') {
+      // Tạo thông báo khi sinh viên nộp bài
+      await Notification.insert({
+        recipient: this.project.mentor,
+        recipientModel: 'CompanyAccount',
+        recipientRole: 'mentor',
+        type: 'task',
+        content: notificationMessages.task.submitted(this.name),
+        relatedId: this._id
+      });
+    } else if (this.status === 'Evaluated' && this.previousStatus === 'Submitted') {
+      // Tạo thông báo khi mentor đánh giá bài
+      await Notification.insert({
+        recipient: this.assignedTo,
+        recipientModel: 'Student',
+        type: 'task',
+        content: notificationMessages.task.evaluated(this.name),
+        relatedId: this._id
+      });
+    }
+  }
+
   next();
 });
 
@@ -274,6 +348,15 @@ taskSchema.statics.searchTasks = async function (query, filters) {
     }
   }));
 };
+taskSchema.path('materialFile').get(function (value) {
+  if (!value) return null;
+  return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
+});
+
+taskSchema.path('studentFile').get(function (value) {
+  if (!value) return null;
+  return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
+});
 
 const Task = mongoose.model('Task', taskSchema);
 export default Task;
@@ -301,10 +384,11 @@ export default Task;
  *         status:
  *           type: string
  *           enum:
- *             - Pending
- *             - In Progress
- *             - Completed
+ *             - Assigned
+ *             - Submitted
+ *             - Evaluated
  *             - Overdue
+ *             - Completed
  *           description: Trạng thái hiện tại của công việc.
  *           example: Pending
  *         rating:
@@ -333,4 +417,3 @@ export default Task;
  *         - project
  *         - assignedTo
  */
-

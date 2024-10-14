@@ -7,6 +7,8 @@ const allowedImageExtensions = ['.jpg', '.jpeg', '.png', '.gif'];
 const allowedExcelExtensions = ['.xlsx', '.xls'];
 const allowedPDFExtensions = ['.pdf'];
 const maxFileSize = 5 * 1024 * 1024; // 5MB
+const allowedCompressedExtensions = ['.zip', '.rar', '.7z', '.tar', '.gz'];
+const maxCompressedFileSize = 50 * 1024 * 1024; // 50MB cho file nén
 
 // Tạo thư mục nếu nó không tồn tại
 const createDirectory = (dir) => {
@@ -181,6 +183,42 @@ const cleanupTempFiles = async () => {
 // Chạy hàm này định kỳ, ví dụ mỗi 24 giờ
 setInterval(cleanupTempFiles, 24 * 60 * 60 * 1000);
 
+
+const useCompressedFileUpload = (baseDirectory, customDir, maxSize, allowedExtensions) => {
+    const storage = multer.diskStorage({
+        destination: (req, file, cb) => {
+            if (!req.user || !req.user._id) {
+                return cb(new Error('Người dùng chưa được xác thực'), null);
+            }
+            const dir = path.join('public', 'uploads', baseDirectory);
+            createDirectory(dir);
+            req.uploadDir = dir;
+            cb(null, dir);
+        },
+        filename: (req, file, cb) => {
+            const uniqueFilename = generateUniqueFilename(req.uploadDir, file.originalname);
+            cb(null, uniqueFilename);
+        }
+    });
+
+    const fileFilter = (req, file, cb) => {
+        const fileExtension = path.extname(file.originalname).toLowerCase();
+        if (allowedExtensions.includes(fileExtension)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Loại file không được hỗ trợ.'), false);
+        }
+    };
+
+    return multer({
+        storage: storage,
+        fileFilter: fileFilter,
+        limits: {
+            fileSize: maxSize * 1024 * 1024 // Convert MB to bytes
+        }
+    });
+};
+
 // Thêm middleware xử lý lỗi
 const handleUploadError = (err, req, res, next) => {
     if (err instanceof multer.MulterError) {
@@ -194,5 +232,4 @@ const handleUploadError = (err, req, res, next) => {
     next();
 };
 
-export { useImageUpload, useExcelUpload, usePDFUpload, useRegistrationImageUpload, handleUploadError };
-
+export { useImageUpload, useExcelUpload, usePDFUpload, useRegistrationImageUpload, handleUploadError, useCompressedFileUpload };

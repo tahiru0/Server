@@ -9,7 +9,7 @@ import Notification from '../models/Notification.js';
 import { handleQuery } from '../utils/queryHelper.js';
 import School from '../models/School.js';
 import { createOrUpdateGroupedNotification } from '../utils/notificationHelper.js';
-import { useImageUpload, usePDFUpload } from '../utils/upload.js';
+import { useImageUpload, usePDFUpload, useCompressedFileUpload } from '../utils/upload.js';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -22,6 +22,7 @@ const deleteFile = (filePath) => {
 
 const avatarUpload = useImageUpload('students', 'avatars');
 const cvUpload = usePDFUpload('students', 'cvs');
+const uploadTaskFile = useCompressedFileUpload('tasks', 'submissions');
 
 const router = express.Router();
 
@@ -130,7 +131,8 @@ router.post('/projects/:id/apply', authenticateStudent, async (req, res) => {
     await project.save();
     res.json({ message: 'Ứng tuyển thành công' });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -142,7 +144,8 @@ router.get('/profile', authenticateStudent, async (req, res) => {
       .select('-password -refreshToken');
     res.json(student);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -179,7 +182,8 @@ router.put('/profile', authenticateStudent, async (req, res) => {
 
 //     res.json({ cvUrl });
 //   } catch (error) {
-//     res.status(500).json({ message: error.message });
+//     const { status, message } = handleError(error);
+//    res.status(status).json({ message });
 //   }
 // });
 
@@ -205,7 +209,8 @@ router.get('/search/projects', authenticateStudent, async (req, res) => {
     const projects = await Project.searchProjects(query, { skills, status, startDate, endDate });
     res.json(projects);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -216,7 +221,8 @@ router.get('/search/tasks', authenticateStudent, async (req, res) => {
     const tasks = await Task.searchTasks(query, { status, deadline, project });
     res.json(tasks);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -231,7 +237,8 @@ router.delete('/projects/:id/apply', authenticateStudent, async (req, res) => {
     await project.removeApplicant(req.user._id);
     res.json({ message: 'Đã hủy ứng tuyển thành công' });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -256,7 +263,8 @@ router.get('/applied-and-accepted-projects', authenticateStudent, async (req, re
       }))
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -304,7 +312,8 @@ router.get('/me', authenticateStudent, async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -334,7 +343,8 @@ router.post('/apply/:projectId', authenticateStudent, async (req, res) => {
 
     res.json({ message: 'Ứng tuyển thành công' });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 // Thêm route mới để hủy ứng tuyển
@@ -369,7 +379,8 @@ router.get('/current-project', authenticateStudent, async (req, res) => {
 
     res.status(200).json(projectDetails);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -410,7 +421,8 @@ router.get('/applied-projects', authenticateStudent, async (req, res) => {
 
     res.status(200).json(appliedProjects);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 // Lấy danh sách task được giao cho sinh viên
@@ -424,7 +436,8 @@ router.get('/tasks', authenticateStudent, async (req, res) => {
     const tasks = await student.getAssignedTasks();
     res.status(200).json(tasks);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -439,10 +452,27 @@ router.put('/tasks/:taskId/status', authenticateStudent, async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy thông tin sinh viên.' });
     }
 
-    const updatedTask = await student.updateTaskStatus(taskId, status);
-    res.status(200).json(updatedTask);
+    const task = await Task.findOne({
+      _id: taskId,
+      assignedTo: student._id,
+      isStudentActive: true
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: 'Không tìm thấy task.' });
+    }
+
+    if (!task.canSubmit()) {
+      return res.status(400).json({ message: 'Không thể nộp bài sau hạn hoặc task đã được đánh giá.' });
+    }
+
+    task.status = 'Submitted';
+    await task.save();
+
+    res.status(200).json(task);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 // Cập nhật CV
@@ -546,7 +576,8 @@ router.get('/get-cv', authenticateStudent, async (req, res) => {
 
     res.status(200).json({ cv: student.cv });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 // Lấy thông tin sinh viên để chỉnh sửa
@@ -574,7 +605,8 @@ router.get('/update-profile', authenticateStudent, async (req, res) => {
 
     res.status(200).json(formattedStudent);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 // Cập nhật thông tin sinh viên (không bao gồm avatar, CV và các trường nhạy cảm)
@@ -627,6 +659,142 @@ router.put('/update-profile', authenticateStudent, async (req, res) => {
     res.status(200).json(updatedStudent);
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+});
+
+// Nộp bài làm
+router.post('/tasks/:taskId/submit', authenticateStudent, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const task = await Task.findOne({
+      _id: taskId,
+      assignedTo: req.user._id,
+      isStudentActive: true
+    }).populate('project');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Không tìm thấy task.' });
+    }
+
+    if (!task.canSubmit()) {
+      return res.status(400).json({ message: 'Không thể nộp bài sau hạn hoặc task đã được đánh giá.' });
+    }
+
+    switch (task.taskType) {
+      case 'fileUpload':
+        const customDir = `company/${task.project.company}/project/${task.project._id}/task/${taskId}/submissions`;
+        const upload = useCompressedFileUpload(customDir, '', task.fileRequirements.maxSize, task.fileRequirements.allowedExtensions);
+
+        upload.single('file')(req, res, async (err) => {
+          if (err) {
+            return res.status(400).json({ message: err.message });
+          }
+
+          if (!req.file) {
+            return res.status(400).json({ message: 'Không tìm thấy file.' });
+          }
+
+          const relativePath = path.relative('public', req.file.path).replace(/\\/g, '/');
+          task.studentFile = relativePath;
+          task.status = 'Submitted';
+          await task.save();
+
+          res.status(200).json({ message: 'Đã nộp bài làm thành công' });
+        });
+        break;
+      case 'multipleChoice':
+        const { answer } = req.body;
+        if (!Array.isArray(answer)) {
+          return res.status(400).json({ message: 'Câu trả lời phải là một mảng các lựa chọn.' });
+        }
+        task.studentAnswer = answer;
+        break;
+      case 'essay':
+      case 'general':
+        const { answer: textAnswer } = req.body;
+        if (typeof textAnswer !== 'string') {
+          return res.status(400).json({ message: 'Câu trả lời phải là một chuỗi.' });
+        }
+        task.studentAnswer = textAnswer;
+        break;
+      default:
+        return res.status(400).json({ message: 'Loại task không hợp lệ.' });
+    }
+
+    if (task.taskType !== 'fileUpload') {
+      task.status = 'Submitted';
+      await task.save();
+      res.status(200).json({ message: 'Đã nộp bài làm thành công' });
+    }
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
+});
+
+// Gửi feedback cho task
+router.post('/tasks/:taskId/feedback', authenticateStudent, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { feedback } = req.body;
+
+    const task = await Task.findOne({
+      _id: taskId,
+      assignedTo: req.user._id,
+      isStudentActive: true
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: 'Không tìm thấy task.' });
+    }
+
+    task.feedback = feedback;
+    await task.save();
+
+    res.status(200).json({ message: 'Đã gửi feedback thành công' });
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
+});
+
+// Lấy chi tiết task
+router.get('/tasks/:taskId', authenticateStudent, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const task = await Task.findOne({
+      _id: taskId,
+      assignedTo: req.user._id,
+      isStudentActive: true
+    }).populate('project', 'title');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Không tìm thấy task.' });
+    }
+
+    const formattedTask = {
+      _id: task._id,
+      name: task.name,
+      description: task.description,
+      deadline: task.deadline,
+      status: task.status,
+      taskType: task.taskType,
+      project: {
+        _id: task.project._id,
+        title: task.project.title
+      },
+      questions: task.questions,
+      fileRequirements: task.fileRequirements,
+      studentAnswer: task.studentAnswer,
+      studentFile: task.studentFile,
+      feedback: task.feedback,
+      materialFile: task.materialFile
+    };
+
+    res.status(200).json(formattedTask);
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 

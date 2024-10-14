@@ -15,13 +15,14 @@ export default function configureRoutes(app) {
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
   app.use('/api', apiRoutes);
   app.use('/uploads', (req, res, next) => {
-    const filePath = path.join(__dirname, '..', 'public', 'uploads', req.path);
+    const decodedPath = decodeURIComponent(req.path);
+    const filePath = path.join(__dirname, '..', 'public', 'uploads', decodedPath);
     fs.access(filePath, fs.constants.F_OK, err => {
       if (err) {
         const defaultIconPath = path.join(__dirname, '..', 'assets', 'defaultIcon.svg');
         res.sendFile(defaultIconPath);
       } else {
-        express.static(path.join(__dirname, '..', 'public', 'uploads'))(req, res, next);
+        res.sendFile(filePath);
       }
     });
   });

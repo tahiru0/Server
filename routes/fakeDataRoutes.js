@@ -611,7 +611,19 @@ router.post('/create-random-projects', async (req, res) => {
       const usedStudentIds = new Set();
 
       const applicationStart = isRecruiting ? new Date() : undefined;
-      const applicationEnd = isRecruiting ? faker.date.soon(60, applicationStart) : undefined;
+
+      let applicationEnd;
+      if (isRecruiting) {
+        const oneWeekLater = new Date(applicationStart);
+        oneWeekLater.setDate(oneWeekLater.getDate() + 7);
+
+        const twoMonthsLater = new Date(applicationStart);
+        twoMonthsLater.setMonth(twoMonthsLater.getMonth() + 2);
+
+        applicationEnd = faker.date.between({ from: oneWeekLater, to: twoMonthsLater });
+      } else {
+        applicationEnd = undefined;
+      }
 
       const project = new Project({
         title: faker.commerce.productName(),

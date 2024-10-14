@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import Queue from 'better-queue';
 
 const createMultiLevelLimiter = (options) => {
   const limiters = options.map(option => rateLimit({
@@ -6,7 +7,10 @@ const createMultiLevelLimiter = (options) => {
     max: option.max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip + '_' + option.name,
+    keyGenerator: (req) => {
+      const baseUrl = req.originalUrl.split('?')[0];
+      return req.ip + '_' + baseUrl + '_' + option.name;
+    },
     handler: (req, res) => {
       res.status(429).json({
         message: `Quá nhiều yêu cầu. Vui lòng thử lại sau.`
@@ -14,41 +18,96 @@ const createMultiLevelLimiter = (options) => {
     }
   }));
 
-  return (req, res, next) => {
+  const requestQueues = new Map();
+  const requestCounts = new Map();
+
+  const processQueue = (key, next) => {
+    const queue = requestQueues.get(key);
+    if (queue && queue.length > 0) {
+      const { req, res, callback } = queue.shift();
+      runLimiter(req, res, callback);
+    }
+    next();
+  };
+
+  const queueProcessor = new Queue(processQueue, {
+    concurrent: 1,
+    maxRetries: 0,
+    retryDelay: 1000,
+  });
+
+  const runLimiter = (req, res, next) => {
     let index = 0;
 
-    const runLimiter = (err) => {
+    const processNextLimiter = (err) => {
       if (err) return next(err);
       if (res.headersSent) return;
 
       const limiter = limiters[index++];
       if (limiter) {
-        limiter(req, res, runLimiter);
+        limiter(req, res, processNextLimiter);
       } else {
         next();
       }
     };
 
-    runLimiter();
+    processNextLimiter();
+  };
+
+  return (req, res, next) => {
+    const baseUrl = req.originalUrl.split('?')[0];
+    const key = req.ip + '_' + baseUrl;
+
+    if (!requestQueues.has(key)) {
+      requestQueues.set(key, []);
+    }
+
+    if (!requestCounts.has(key)) {
+      requestCounts.set(key, 0);
+    }
+
+    const queue = requestQueues.get(key);
+    const count = requestCounts.get(key);
+
+    if (count > 5) { // Giới hạn số lần lặp lại
+      return res.status(429).json({
+        message: 'Quá nhiều yêu cầu lặp lại. Vui lòng thử lại sau 1 giây.'
+      });
+    }
+
+    requestCounts.set(key, count + 1);
+
+    setTimeout(() => {
+      requestCounts.set(key, Math.max(0, requestCounts.get(key) - 1));
+    }, 1000);
+
+    if (queue.length >= 10) { // Giới hạn độ dài hàng đợi
+      return res.status(429).json({
+        message: 'Hệ thống đang quá tải. Vui lòng thử lại sau.'
+      });
+    }
+
+    queue.push({ req, res, callback: next });
+    queueProcessor.push(key);
   };
 };
 
 // Limiter với giới hạn tốc độ cao nhất
 export const highRateLimiter = createMultiLevelLimiter([
-  { name: 'perSecond', windowMs: 1000, max: 10 },       // 20 yêu cầu mỗi giây
-  { name: 'perMinute', windowMs: 60 * 1000, max: 200 }, // 200 yêu cầu mỗi phút
+  { name: 'perSecond', windowMs: 1000, max: 15 },       // 15 yêu cầu mỗi giây
+  { name: 'perMinute', windowMs: 60 * 1000, max: 250 }, // 250 yêu cầu mỗi phút
 ]);
 
 // Limiter với giới hạn tốc độ trung bình
 export const mediumRateLimiter = createMultiLevelLimiter([
-  { name: 'perSecond', windowMs: 1000, max: 10 },       // 10 yêu cầu mỗi giây
-  { name: 'perMinute', windowMs: 60 * 1000, max: 100 }, // 100 yêu cầu mỗi phút
+  { name: 'perSecond', windowMs: 1000, max: 12 },       // 12 yêu cầu mỗi giây
+  { name: 'perMinute', windowMs: 60 * 1000, max: 150 }, // 150 yêu cầu mỗi phút
 ]);
 
 // Limiter với giới hạn tốc độ thấp
 export const lowRateLimiter = createMultiLevelLimiter([
-  { name: 'perSecond', windowMs: 1000, max: 5 },       // 5 yêu cầu mỗi giây
-  { name: 'perMinute', windowMs: 60 * 1000, max: 50 }, // 50 yêu cầu mỗi phút
+  { name: 'perSecond', windowMs: 1000, max: 8 },       // 8 yêu cầu mỗi giây
+  { name: 'perMinute', windowMs: 60 * 1000, max: 80 }, // 80 yêu cầu mỗi phút
 ]);
 
 export const apiLimiter = createMultiLevelLimiter([

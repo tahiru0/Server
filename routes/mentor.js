@@ -7,6 +7,12 @@ import Task from '../models/Task.js';
 import Student from '../models/Student.js'; // Import model Student
 import { handleError } from '../utils/errorHandler.js';
 import { handleQuery } from '../utils/queryHelper.js';
+import Report from '../models/Report.js';
+import { useCompressedFileUpload } from '../utils/upload.js';
+import path from 'path';
+import fs from 'fs';
+
+const uploadTaskMaterial = useCompressedFileUpload('tasks', 'materials');
 
 const router = express.Router();
 
@@ -24,7 +30,7 @@ router.get('/projects', authenticateMentor, async (req, res, next) => {
     const mentorId = req.user._id.toString();
     const companyId = req.user.companyId.toString();
 
-    const additionalFilters = { 
+    const additionalFilters = {
       mentor: mentorId,
       company: companyId
     };
@@ -36,9 +42,9 @@ router.get('/projects', authenticateMentor, async (req, res, next) => {
         path: 'selectedApplicants.studentId',
         select: '_id name avatar'
       })
-      .select('_id title selectedApplicants')
-      .sort({ updatedAt: -1 })
-      .exec(),
+        .select('_id title selectedApplicants')
+        .sort({ updatedAt: -1 })
+        .exec(),
       Project.countDocuments(query.getFilter())
     ]);
 
@@ -97,55 +103,55 @@ router.post('/projects/:projectId/applicants/:applicantId/reject', authenticateM
   }
 });
 
-// Giao task cho sinh viên
-router.post('/projects/:projectId/tasks', authenticateMentor, async (req, res, next) => {
-  try {
-    const { name, description, deadline, assignedTo } = req.body;
-    const project = await Project.findOne({ _id: req.params.projectId, mentor: req.user._id });
-    if (!project) {
-      return res.status(404).json({ message: 'Không tìm thấy dự án' });
-    }
-    const task = new Task({
-      name,
-      description,
-      deadline,
-      project: project._id,
-      assignedTo
-    });
-    await task.save();
-    res.status(201).json(task);
-  } catch (error) {
-    next(error);
-  }
-});
-
 // Đánh giá task
-router.post('/tasks/:taskId/rate', authenticateMentor, async (req, res, next) => {
+router.post('/tasks/:taskId/evaluate', authenticateMentor, async (req, res, next) => {
   try {
     const { taskId } = req.params;
     const { rating, comment } = req.body;
 
     const task = await Task.findOne({
       _id: taskId,
-      project: { $in: await Project.find({ mentor: req.user._id }).select('_id') },
-      status: 'Completed'
+      project: { $in: await Project.find({ mentor: req.user._id }).select('_id') }
     });
 
     if (!task) {
-      return res.status(404).json({ message: 'Không tìm thấy task hoặc task chưa hoàn thành' });
+      return res.status(404).json({ message: 'Không tìm thấy task hoặc bạn không có quyền đánh giá' });
     }
 
-    if (task.ratedAt) {
-      return res.status(400).json({ message: 'Không thể sửa đánh giá sau khi đã đánh giá' });
+    let report = await Report.findOne({
+      student: task.assignedTo,
+      project: task.project
+    });
+
+    if (!report) {
+      report = new Report({
+        student: task.assignedTo,
+        project: task.project,
+        taskEvaluations: []
+      });
     }
 
-    task.rating = rating;
-    task.comment = comment;
-    task.ratedAt = new Date();
+    let taskEvaluation = report.taskEvaluations.find(te => te.task.toString() === taskId);
+    if (!taskEvaluation) {
+      taskEvaluation = {
+        task: taskId,
+        evaluations: []
+      };
+      report.taskEvaluations.push(taskEvaluation);
+    }
 
+    taskEvaluation.evaluations.push({
+      evaluator: req.user._id,
+      rating,
+      comment
+    });
+
+    await report.save();
+
+    task.status = 'Evaluated';
     await task.save();
 
-    res.json(task);
+    res.json({ message: 'Đã đánh giá task thành công' });
   } catch (error) {
     next(error);
   }
@@ -208,8 +214,18 @@ router.get('/projects/:projectId', authenticateMentor, async (req, res, next) =>
 router.get('/projects/:projectId/tasks', authenticateMentor, async (req, res, next) => {
   try {
     const { projectId } = req.params;
-    const { status, sortBy, order, query, deadline, page = 1, limit = 10 } = req.query;
-    
+    const {
+      name,
+      assignedTo,
+      status,
+      deadlineStart,
+      deadlineEnd,
+      sortBy = 'createdAt',
+      order = 'desc',
+      page = 1,
+      limit = 10
+    } = req.query;
+
     const project = await Project.findOne({ _id: projectId, mentor: req.user._id });
     if (!project) {
       return res.status(404).json({ message: 'Không tìm thấy dự án' });
@@ -217,59 +233,123 @@ router.get('/projects/:projectId/tasks', authenticateMentor, async (req, res, ne
 
     let searchCriteria = { project: projectId };
 
+    if (name) {
+      searchCriteria.name = { $regex: name, $options: 'i' };
+    }
+
+    if (assignedTo) {
+      searchCriteria.assignedTo = assignedTo;
+    }
+
     if (status) {
       searchCriteria.status = status;
     }
 
-    if (query) {
-      searchCriteria.$or = [
-        { name: { $regex: query, $options: 'i' } },
-        { description: { $regex: query, $options: 'i' } }
-      ];
+    if (deadlineStart || deadlineEnd) {
+      searchCriteria.deadline = {};
+      if (deadlineStart) {
+        searchCriteria.deadline.$gte = new Date(deadlineStart);
+      }
+      if (deadlineEnd) {
+        searchCriteria.deadline.$lte = new Date(deadlineEnd);
+      }
     }
 
-    if (deadline) {
-      searchCriteria.deadline = { $lte: new Date(deadline) };
-    }
+    const pageNumber = parseInt(page, 10);
+    const limitNumber = parseInt(limit, 10);
+    const skip = (pageNumber - 1) * limitNumber;
 
-    const skip = (page - 1) * limit;
+    const sortOption = {};
+    sortOption[sortBy] = order === 'desc' ? -1 : 1;
+
+    const total = await Task.countDocuments(searchCriteria);
 
     let tasks = await Task.find(searchCriteria)
-      .populate('assignedTo', 'name avatar')
-      .sort(sortBy ? { [sortBy]: order === 'desc' ? -1 : 1 } : { updatedAt: -1 }) // Sắp xếp theo cập nhật mới nhất
+      .populate('assignedTo', 'name avatar _id')
+      .select('name assignedTo status deadline rating')
+      .sort(sortOption)
       .skip(skip)
-      .limit(parseInt(limit, 10));
+      .limit(limitNumber);
 
-    res.json(tasks);
+    const formattedTasks = tasks.map(task => ({
+      _id: task._id,
+      name: task.name,
+      assignedTo: task.assignedTo ? { name: task.assignedTo.name, avatar: task.assignedTo.avatar, _id: task.assignedTo._id } : { name: 'Chưa giao', avatar: null, id: null },
+      status: task.status,
+      deadline: task.deadline,
+      rating: task.rating
+    }));
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.json({
+      tasks: formattedTasks,
+      total,
+      page: pageNumber,
+      limit: limitNumber,
+      totalPages,
+      hasNextPage: pageNumber < totalPages,
+      hasPrevPage: pageNumber > 1
+    });
   } catch (error) {
+    console.error('Lỗi khi lấy danh sách task:', error);
     next(error);
   }
 });
 
 // Tạo task mới
-router.post('/projects/:projectId/tasks', authenticateMentor, async (req, res, next) => {
-  try {
-    const { projectId } = req.params;
-    const { name, description, deadline, assignedTo } = req.body;
+router.post('/projects/:projectId/tasks', authenticateMentor, (req, res, next) => {
+  const { projectId } = req.params;
+  const customDir = `company/${req.user.companyId}/${projectId}/materials`;
+  const upload = useCompressedFileUpload(customDir, '', 200, ['.pdf', '.doc', '.docx', '.zip']);
 
-    const project = await Project.findOne({ _id: projectId, mentor: req.user._id });
-    if (!project) {
-      return res.status(404).json({ message: 'Không tìm thấy dự án' });
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      return next(err);
     }
+    try {
+      const { name, description, deadline, assignedTo, taskType, questions, fileRequirements } = req.body;
 
-    const task = new Task({
-      name,
-      description,
-      deadline,
-      project: projectId,
-      assignedTo
-    });
+      const project = await Project.findOne({ _id: projectId, mentor: req.user._id });
+      if (!project) {
+        return res.status(404).json({ message: 'Không tìm thấy dự án' });
+      }
 
-    await task.save();
-    res.status(201).json(task);
-  } catch (error) {
-    next(error);
-  }
+      let parsedQuestions;
+      if (questions) {
+        try {
+          parsedQuestions = JSON.parse(questions);
+        } catch (error) {
+          return res.status(400).json({ message: 'Định dạng câu hỏi không hợp lệ' });
+        }
+      }
+
+      const task = new Task({
+        name,
+        description,
+        deadline,
+        project: projectId,
+        assignedTo,
+        taskType,
+        questions: parsedQuestions,
+        fileRequirements: taskType === 'fileUpload' ? {
+          maxSize: fileRequirements && fileRequirements.maxSize ? Math.min(Number(fileRequirements.maxSize), 1024) : 1024,
+          allowedExtensions: fileRequirements && fileRequirements.allowedExtensions ? fileRequirements.allowedExtensions : []
+        } : undefined,
+        lms: req.body.lms || []
+      });
+
+      if (req.file) {
+        const relativePath = path.relative('public', req.file.path).replace(/\\/g, '/');
+        task.materialFile = relativePath;
+      }
+
+      await task.save();
+      res.status(201).json({ message: 'Đã tạo task mới thành công' });
+    } catch (error) {
+      next(error);
+    }
+  });
 });
 
 // Cập nhật task
@@ -288,7 +368,7 @@ router.put('/tasks/:taskId', authenticateMentor, async (req, res, next) => {
       return res.status(404).json({ message: 'Không tìm thấy task hoặc bạn không có quyền cập nhật' });
     }
 
-    res.json(task);
+    res.json({ message: 'Đã cập nhật task thành công' });
   } catch (error) {
     next(error);
   }
@@ -302,13 +382,28 @@ router.get('/tasks/:taskId', authenticateMentor, async (req, res, next) => {
     const task = await Task.findOne({
       _id: taskId,
       project: { $in: await Project.find({ mentor: req.user._id }).select('_id') }
-    }).populate('assignedTo', 'name avatar');
+    })
+      .populate('assignedTo', 'name avatar _id')
+      .populate('project', 'title _id');
 
     if (!task) {
       return res.status(404).json({ message: 'Không tìm thấy task' });
     }
 
-    res.json(task);
+    const formattedTask = {
+      ...task.toObject(),
+      project: {
+        id: task.project._id,
+        title: task.project.title
+      },
+      assignedTo: task.assignedTo ? {
+        id: task.assignedTo._id,
+        name: task.assignedTo.name,
+        avatar: task.assignedTo.avatar
+      } : null
+    };
+
+    res.json(formattedTask);
   } catch (error) {
     next(error);
   }
@@ -404,11 +499,97 @@ router.post('/projects/:projectId/remove-student/:studentId', authenticateMentor
   }
 });
 
-const errorHandler = (err, req, res, next) => {
-  const { status, message } = handleError(err);
-  res.status(status).json({ message });
-};
+// Đánh giá tổng thể sinh viên
+router.post('/students/:studentId/evaluate', authenticateMentor, async (req, res, next) => {
+  try {
+    const { studentId } = req.params;
+    const { rating, comment } = req.body;
 
-router.use(errorHandler);
+    const report = await Report.findOne({
+      student: studentId,
+      project: { $in: await Project.find({ mentor: req.user._id }).select('_id') }
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: 'Không tìm thấy báo cáo cho sinh viên này' });
+    }
+
+    report.overallEvaluations.push({
+      evaluator: req.user._id,
+      rating,
+      comment
+    });
+
+    await report.save();
+
+    res.json(report);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Xem bài làm của sinh viên
+router.get('/tasks/:taskId/submission', authenticateMentor, async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    const task = await Task.findOne({
+      _id: taskId,
+      project: { $in: await Project.find({ mentor: req.user._id }).select('_id') }
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: 'Không tìm thấy task' });
+    }
+
+    res.json({
+      taskType: task.taskType,
+      studentAnswer: task.studentAnswer,
+      studentFile: task.studentFile
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Xóa file tài liệu
+router.delete('/tasks/:taskId/material', authenticateMentor, async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    const task = await Task.findOne({
+      _id: taskId,
+      project: { $in: await Project.find({ mentor: req.user._id }).select('_id') }
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: 'Không tìm thấy task hoặc bạn không có quyền xóa' });
+    }
+
+    if (task.materialFile) {
+      fs.unlinkSync(task.materialFile);
+      task.materialFile = null;
+      await task.save();
+    }
+
+    res.json({ message: 'Đã xóa file tài liệu thành công' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Lấy thống kê dự án
+router.get('/projects/:projectId/statistics', authenticateMentor, async (req, res, next) => {
+  try {
+    const { projectId } = req.params;
+    const statistics = await Project.getProjectStatistics(projectId);
+    res.json(statistics);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.use((error, req, res, next) => {
+  const { status, message } = handleError(error);
+  res.status(status).json({ message });
+});
 
 export default router;

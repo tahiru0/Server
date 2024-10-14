@@ -37,7 +37,12 @@ const notificationMessages = {
           } else {
               return `**Task "${taskName}"** của bạn đã được đánh giá **${rating}/10** điểm. Đừng nản lòng, hãy xem đây là cơ hội để học hỏi và tiến bộ!`;
           }
-      }
+      },
+      submitted: (taskName) => `**Tuyệt vời!** Bạn đã nộp task "${taskName}". Hãy chờ đợi phản hồi từ mentor nhé!`,
+      evaluated: (taskName) => `**Chú ý!** Task "${taskName}" của bạn đã được đánh giá. Hãy xem ngay để biết kết quả và nhận xét từ mentor!`,
+      statusUpdated: (taskName, newStatus) => `Trạng thái của task "${taskName}" đã được cập nhật thành **${newStatus}**.`,
+      deadlineApproaching: (taskName, daysLeft) => `**Nhắc nhở:** Chỉ còn ${daysLeft} ngày nữa là đến hạn nộp task "${taskName}". Hãy hoàn thành sớm nhé!`,
+      cannotSubmit: (taskName) => `**Rất tiếc!** Bạn không thể nộp task "${taskName}" vì đã quá hạn hoặc task đã được đánh giá.`,
   },
   // Thêm các loại thông báo khác ở đây
 };
