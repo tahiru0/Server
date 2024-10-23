@@ -131,37 +131,44 @@ router.get('/projects', authenticateStudent, async (req, res) => {
 });
 
 // Ứng tuyển dự án
-router.post('/projects/:id/apply', authenticateStudent, async (req, res) => {
+router.post('/projects/:projectId/apply', authenticateStudent, async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const { projectId } = req.params;
+    const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Không tìm thấy dự án' });
     }
 
+    const student = await Student.findById(req.user._id);
+    if (!student) {
+      return res.status(404).json({ error: 'Không tìm thấy thông tin sinh viên' });
+    }
+
     // Kiểm tra xem sinh viên đã ứng tuyển chưa
     const alreadyApplied = project.applicants.some(applicant =>
-      applicant.applicantId.toString() === req.user._id.toString()
+      applicant.applicantId.toString() === student._id.toString()
     );
     if (alreadyApplied) {
       return res.status(400).json({ error: 'Bạn đã ứng tuyển dự án này rồi' });
     }
 
-        // Kiểm tra xem dự án có thể nhận ứng viên không
+    // Kiểm tra xem dự án có thể nhận ứng viên không
     const acceptStatus = project.canAcceptApplicants();
     if (!acceptStatus.canAccept) {
       return res.status(400).json({ error: acceptStatus.reason });
     }
 
-    project.applicants.push({ applicantId: req.user._id });
-    project.currentApplicants += 1;
+    // Thêm sinh viên vào danh sách ứng tuyển của dự án
+    await project.addApplicant(student._id);
+
+    // Thêm dự án vào danh sách đã ứng tuyển của sinh viên
+    await student.addAppliedProject(project._id);
 
     // Kiểm tra và cập nhật trạng thái tuyển dụng nếu cần
     if (project.checkRecruitmentStatus()) {
-      await project.save();
       return res.json({ message: 'Ứng tuyển thành công. Dự án đã đóng tuyển dụng.' });
     }
 
-    await project.save();
     res.json({ message: 'Ứng tuyển thành công' });
   } catch (error) {
     const { status, message } = handleError(error);
@@ -260,14 +267,18 @@ router.get('/search/tasks', authenticateStudent, async (req, res) => {
 });
 
 // Thêm route mới để hủy ứng tuyển
-router.delete('/projects/:id/apply', authenticateStudent, async (req, res) => {
+router.delete('/projects/:projectId/apply', authenticateStudent, async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const { projectId } = req.params;
+    const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Không tìm thấy dự án' });
     }
 
     await project.removeApplicant(req.user._id);
+    const student = await Student.findById(req.user._id);
+    await student.removeAppliedProject(projectId);
+
     res.json({ message: 'Đã hủy ứng tuyển thành công' });
   } catch (error) {
     const { status, message } = handleError(error);
@@ -924,6 +935,27 @@ router.get('/majors/:schoolId', async (req, res) => {
     }, []);
 
     res.status(200).json(majors);
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
+});
+
+router.get('/current-projects', authenticateStudent, async (req, res) => {
+  try {
+    const student = await Student.findById(req.user._id).populate('currentProjects');
+    if (!student) {
+      return res.status(404).json({ message: 'Không tìm thấy thông tin sinh viên.' });
+    }
+
+    const currentProjects = student.currentProjects.map(project => ({
+      _id: project._id,
+      title: project.title,
+      description: project.description,
+      status: project.status
+    }));
+
+    res.status(200).json(currentProjects);
   } catch (error) {
     const { status, message } = handleError(error);
     res.status(status).json({ message });

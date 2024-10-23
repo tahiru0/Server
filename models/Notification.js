@@ -191,6 +191,10 @@ notificationSchema.statics.insert = async function(notificationData) {
     } else if (notificationData.recipientModel === 'Student') {
       recipient = await mongoose.model('Student').findById(notificationData.recipient);
       parentId = null;
+    } else if (notificationData.recipientModel === 'Admin') {
+      recipient = await mongoose.model('Admin').findById(notificationData.recipient);
+      parentId = null;
+      recipientRole = recipient.role;
     } else {
       console.error(`Loại người nhận không hợp lệ: ${notificationData.recipientModel}`);
       return null;

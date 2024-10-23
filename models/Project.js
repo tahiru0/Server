@@ -52,9 +52,7 @@ const projectSchema = new mongoose.Schema({
     studentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
-      required: true,
-      sparse: true,
-      message: 'Mỗi sinh viên chỉ có thể được chọn một lần cho mỗi dự án'
+      required: true
     },
     appliedDate: {
       type: Date,
@@ -248,10 +246,6 @@ projectSchema.methods.pinProject = async function () {
 
 // Thêm index unique cho applicants.applicantId
 projectSchema.index({ 'applicants.applicantId': 1 }, { unique: true, sparse: true, message: 'Mỗi sinh viên chỉ có thể ứng tuyển một lần cho mỗi dự án' });
-
-// Thêm index unique cho selectedApplicants.studentId
-projectSchema.index({ 'selectedApplicants.studentId': 1 }, { unique: true, sparse: true, message: 'Mỗi sinh viên chỉ có thể được chọn một lần cho mỗi dự án' });
-
 
 // Middleware để kiểm tra trạng thái trước khi thực hiện các hành động
 projectSchema.pre('save', function (next) {
@@ -964,10 +958,11 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
 
   await this.save();
 
-  // Cập nhật currentProject của sinh viên
-  const student = await mongoose.model('Student').findById(studentId);
+  // Cập nhật danh sách dự án của sinh viên
+  const Student = mongoose.model('Student');
+  const student = await Student.findById(studentId);
   if (student) {
-    await student.removeCurrentProject();
+    await student.removeFromProject(this._id);
   }
 
   // Xóa mềm các task liên quan đến sinh viên
@@ -1103,10 +1098,34 @@ projectSchema.statics.getProjectStatistics = async function (projectId) {
   return {
     totalTasks,
     completedTasks,
-    progress: (completedTasks / totalTasks) * 100,
+    progress: totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0,
     studentPerformance
   };
 };
+projectSchema.methods.addSelectedApplicant = async function(studentId) {
+  if (!this.selectedApplicants.some(applicant => applicant.studentId.toString() === studentId.toString())) {
+    this.selectedApplicants.push({ studentId });
+    await this.save();
+
+    const Student = mongoose.model('Student');
+    const student = await Student.findById(studentId);
+    if (student) {
+      await student.updateCurrentProjects();
+    }
+  }
+};
+projectSchema.post('save', async function(doc) {
+  const Student = mongoose.model('Student');
+  const studentIds = doc.selectedApplicants.map(applicant => applicant.studentId);
+  await Student.updateMany(
+    { _id: { $in: studentIds } },
+    { $addToSet: { currentProjects: doc._id } }
+  );
+  await Student.updateMany(
+    { _id: { $nin: studentIds }, currentProjects: doc._id },
+    { $pull: { currentProjects: doc._id } }
+  );
+});
 
 projectSchema.plugin(softDeletePlugin);
 

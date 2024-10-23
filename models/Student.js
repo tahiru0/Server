@@ -200,7 +200,11 @@ const StudentSchema = new Schema({
     faculty: {
         _id: { type: Schema.Types.ObjectId },
         name: { type: String }
-    }
+    },
+    currentProjects: [{
+        type: Schema.Types.ObjectId,
+        ref: 'Project'
+    }],
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 StudentSchema.virtual('password')
@@ -756,6 +760,20 @@ StudentSchema.statics.getOneStudent = async function (id) {
     return student;
 };
 
+StudentSchema.methods.updateCurrentProjects = async function() {
+  const Project = mongoose.model('Project');
+  const projects = await Project.find({
+    'selectedApplicants.studentId': this._id
+  });
+  this.currentProjects = projects.map(project => project._id);
+  await this.save();
+};
+
+StudentSchema.methods.removeFromProject = async function(projectId) {
+  this.currentProjects = this.currentProjects.filter(id => id.toString() !== projectId.toString());
+  await this.save();
+};
+
 export default mongoose.model('Student', StudentSchema);
 
 /**
@@ -799,6 +817,8 @@ export default mongoose.model('Student', StudentSchema);
  *           type: string
  *           description: Token làm mới để cấp lại access token
  */
+
+
 
 
 

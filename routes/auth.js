@@ -610,58 +610,22 @@ router.post('/refresh-token', async (req, res) => {
  *       400:
  *         description: Refresh token không hợp lệ
  */
-router.post('/logout', async (req, res) => {
-  const { refreshToken } = req.body;
-  if (!refreshToken) {
-    return res.status(400).json({ message: 'Refresh token là bắt buộc' });
-  }
-
+router.post('/logout', authenticate, async (req, res) => {
   try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-    let user;
+    const user = req.user;
+    const userModel = req.userModel;
 
-    switch (decoded.model) {
-      case 'Admin':
-        user = await Admin.findById(decoded._id);
-        if (user) {
-          user.refreshToken = null;
-          await user.save();
-        }
-        break;
-      case 'CompanyAccount':
-        const company = await Company.findById(decoded.companyId);
-        if (company) {
-          const account = company.accounts.id(decoded._id);
-          if (account) {
-            account.refreshToken = null;
-            await company.save();
-          }
-        }
-        break;
-      case 'SchoolAccount':
-        const school = await School.findById(decoded.schoolId);
-        if (school) {
-          const account = school.accounts.id(decoded._id);
-          if (account) {
-            account.refreshToken = null;
-            await school.save();
-          }
-        }
-        break;
-      case 'Student':
-        user = await Student.findById(decoded._id);
-        if (user) {
-          user.refreshToken = null;
-          await user.save();
-        }
-        break;
-      default:
-        return res.status(400).json({ message: 'Loại người dùng không hợp lệ' });
-    }
+    // Xóa refresh token khỏi cơ sở dữ liệu
+    user.refreshToken = undefined;
+    await user.save();
 
-    res.json({ message: 'Đăng xuất thành công' });
+    // Ghi lại lịch sử đăng xuất
+    await saveLoginHistory(req, user, userModel, true, 'Đăng xuất thành công');
+
+    res.status(200).json({ message: 'Đăng xuất thành công' });
   } catch (error) {
-    res.status(401).json({ message: 'Refresh token không hợp lệ' });
+    console.error('Lỗi khi đăng xuất:', error);
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi đăng xuất' });
   }
 });
 
