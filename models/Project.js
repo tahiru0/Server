@@ -4,6 +4,7 @@ import Notification from './Notification.js';
 import sanitizeHtml from 'sanitize-html';
 import Task from './Task.js';
 import notificationMessages from '../utils/notificationMessages.js';
+import softDeletePlugin from '../utils/softDelete.js';
 
 const sanitizeOptions = {
   allowedTags: [],
@@ -95,7 +96,7 @@ const projectSchema = new mongoose.Schema({
   },
   applicationStart: {
     type: Date,
-    default: function() {
+    default: function () {
       return this.isRecruiting ? new Date() : null;
     }
   },
@@ -103,20 +104,20 @@ const projectSchema = new mongoose.Schema({
     type: Date,
     validate: [
       {
-        validator: function(v) {
+        validator: function (v) {
           return this.isRecruiting ? v != null : true;
         },
         message: 'Thời gian kết thúc tuyển dụng không được để trống khi đang tuyển dụng'
       },
       {
-        validator: function(v) {
+        validator: function (v) {
           if (!this.isRecruiting || !v) return true;
           return v > this.applicationStart;
         },
         message: 'Thời gian kết thúc tuyển dụng phải sau thời gian bắt đầu'
       },
       {
-        validator: function(v) {
+        validator: function (v) {
           if (!this.isRecruiting || !v) return true;
           const maxEndDate = new Date(this.applicationStart);
           maxEndDate.setMonth(maxEndDate.getMonth() + 2);
@@ -205,7 +206,39 @@ const projectSchema = new mongoose.Schema({
   isDeleted: {
     type: Boolean,
     default: false
-  }
+  },
+  internshipSchedule: [{
+    dayOfWeek: {
+      type: Number,
+      min: 0,
+      max: 6,
+      required: true
+    },
+    startTime: {
+      type: String,
+      required: true,
+      match: /^([01]\d|2[0-3]):([0-5]\d)$/
+    },
+    endTime: {
+      type: String,
+      required: true,
+      match: /^([01]\d|2[0-3]):([0-5]\d)$/
+    }
+  }],
+  weeklyReportDueDay: {
+    type: Number,
+    min: 0,
+    max: 6,
+    default: 0 // Mặc định là Chủ Nhật
+  },
+  weeklyReports: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'WeeklyReport'
+  }],
+  tasks: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Task'
+  }]
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 projectSchema.methods.pinProject = async function () {
@@ -962,7 +995,7 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
 };
 
 // Thêm hàm updateRecruitmentStatus vào schema
-projectSchema.methods.updateRecruitmentStatus = function() {
+projectSchema.methods.updateRecruitmentStatus = function () {
   const now = new Date();
   if (this.isRecruiting && now > this.applicationEnd) {
     this.isRecruiting = false;
@@ -972,16 +1005,16 @@ projectSchema.methods.updateRecruitmentStatus = function() {
 };
 
 // Thêm middleware pre cho find
-projectSchema.pre('find', function(next) {
+projectSchema.pre('find', function (next) {
   this.find({ isDeleted: false });
   next();
 });
 
-projectSchema.post('find', async function(docs) {
+projectSchema.post('find', async function (docs) {
   if (Array.isArray(docs)) {
     const now = new Date();
     const updatedDocs = docs.filter(doc => doc.isRecruiting && now > doc.applicationEnd);
-    
+
     for (const doc of updatedDocs) {
       await this.model.updateOne({ _id: doc._id }, { isRecruiting: false });
     }
@@ -989,13 +1022,13 @@ projectSchema.post('find', async function(docs) {
 });
 
 // Thêm middleware pre cho findOne
-projectSchema.pre('findOne', function(next) {
+projectSchema.pre('findOne', function (next) {
   this.findOne({ isDeleted: false });
   next();
 });
 
 // Thêm middleware post cho findOne
-projectSchema.post('findOne', async function(doc) {
+projectSchema.post('findOne', async function (doc) {
   if (doc) {
     const now = new Date();
     if (doc.isRecruiting && now > doc.applicationEnd) {
@@ -1006,7 +1039,7 @@ projectSchema.post('findOne', async function(doc) {
 });
 
 // Cập nhật middleware pre cho findOneAndUpdate
-projectSchema.pre('findOneAndUpdate', async function(next) {
+projectSchema.pre('findOneAndUpdate', async function (next) {
   const update = this.getUpdate();
   if (update.$set) {
     Object.keys(update.$set).forEach(key => {
@@ -1028,7 +1061,7 @@ projectSchema.pre('findOneAndUpdate', async function(next) {
 });
 
 // Middleware để tự động cập nhật applicationStart khi isRecruiting thay đổi
-projectSchema.pre('save', function(next) {
+projectSchema.pre('save', function (next) {
   if (this.isModified('isRecruiting') && this.isRecruiting) {
     this.applicationStart = new Date();
   }
@@ -1036,7 +1069,7 @@ projectSchema.pre('save', function(next) {
 });
 
 // Middleware để kiểm tra và cập nhật trạng thái tuyển dụng
-projectSchema.pre('save', function(next) {
+projectSchema.pre('save', function (next) {
   const now = new Date();
   if (this.isRecruiting && now > this.applicationEnd) {
     this.isRecruiting = false;
@@ -1044,7 +1077,7 @@ projectSchema.pre('save', function(next) {
   next();
 });
 
-projectSchema.statics.getProjectStatistics = async function(projectId) {
+projectSchema.statics.getProjectStatistics = async function (projectId) {
   const project = await this.findById(projectId)
     .populate('tasks')
     .populate('selectedApplicants.studentId');
@@ -1058,11 +1091,11 @@ projectSchema.statics.getProjectStatistics = async function(projectId) {
   const studentPerformance = project.selectedApplicants.map(applicant => ({
     studentId: applicant.studentId._id,
     studentName: applicant.studentId.name,
-    completedTasks: project.tasks.filter(task => 
-      task.assignedTo.toString() === applicant.studentId._id.toString() && 
+    completedTasks: project.tasks.filter(task =>
+      task.assignedTo.toString() === applicant.studentId._id.toString() &&
       task.status === 'Completed'
     ).length,
-    totalAssignedTasks: project.tasks.filter(task => 
+    totalAssignedTasks: project.tasks.filter(task =>
       task.assignedTo.toString() === applicant.studentId._id.toString()
     ).length
   }));
@@ -1074,6 +1107,8 @@ projectSchema.statics.getProjectStatistics = async function(projectId) {
     studentPerformance
   };
 };
+
+projectSchema.plugin(softDeletePlugin);
 
 const Project = mongoose.model('Project', projectSchema);
 

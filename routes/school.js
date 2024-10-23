@@ -1,6 +1,8 @@
 import express from 'express';
 import Student from '../models/Student.js';
 import School from '../models/School.js';
+import Task from '../models/Task.js'
+import Major from '../models/Major.js';
 import authenticate from '../middlewares/authenticate.js';
 import { handleError } from '../utils/errorHandler.js';
 import { useRegistrationImageUpload, useExcelUpload } from '../utils/upload.js';
@@ -10,12 +12,12 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { encrypt, decrypt } from '../utils/encryption.js';
 import { emailChangeLimiter } from '../utils/rateLimiter.js';
-import Major from '../models/Major.js';
 import axios from 'axios';
 import mongoose from 'mongoose';
 import { handleQuery } from '../utils/queryHelper.js';
 import { getSchoolDashboardData } from '../models/dashboard.js';
 import multer from 'multer';
+import bcrypt from 'bcrypt';
 import xlsx from 'xlsx';
 import path from 'path';
 import fs from 'fs';
@@ -997,7 +999,7 @@ router.post('/students/upload', authenticateSchoolAdmin, (req, res, next) => {
                 let majorDocs = [majorDoc._id];
 
                 let existingStudent = await Student.findOne({ studentId: studentData.studentId, school: schoolId });
-                
+
                 if (existingStudent) {
                     if (!existingStudent.isApproved) {
                         existingStudent.isApproved = true;
@@ -1115,8 +1117,21 @@ router.get('/students', authenticateSchoolAccount, async (req, res) => {
             .skip((page - 1) * limit)
             .limit(limit);
 
+        // Lấy thông tin về khoa
+        const school = await School.findById(schoolId).select('faculties');
+        const facultiesMap = new Map(school.faculties.map(f => [f._id.toString(), f.name]));
+
+        const studentsWithFaculty = students.map(student => {
+            const facultyName = student.major && student.major._id ? 
+                facultiesMap.get(student.major._id.toString()) : 'Chưa xác định';
+            return {
+                ...student.toObject(),
+                facultyName
+            };
+        });
+
         res.status(200).json({
-            students,
+            students: studentsWithFaculty,
             currentPage: page,
             totalPages: Math.ceil(totalStudents / limit),
             totalStudents
@@ -1147,32 +1162,32 @@ router.get('/students/:id', authenticateSchoolAccount, async (req, res) => {
 // Cập nhật sinh viên
 router.put('/students/:id', authenticateSchoolAdmin, async (req, res) => {
     try {
-      const { id } = req.params;
-      const updateData = req.body;
-  
-      if (updateData.dateOfBirth === null) {
-        delete updateData.dateOfBirth;
-      } else if (updateData.dateOfBirth) {
-        updateData.dateOfBirth = new Date(updateData.dateOfBirth);
-      }
-  
-      const student = await Student.findById(id);
-      if (!student) {
-        return res.status(404).json({ message: 'Không tìm thấy sinh viên' });
-      }
-  
-      if (student.school.toString() !== req.user.school.toString()) {
-        return res.status(403).json({ message: 'Bạn không có quyền cập nhật sinh viên này' });
-      }
-  
-      Object.assign(student, updateData);
-      await student.save();
-  
-      res.json(student);
+        const { id } = req.params;
+        const updateData = req.body;
+
+        if (updateData.dateOfBirth === null) {
+            delete updateData.dateOfBirth;
+        } else if (updateData.dateOfBirth) {
+            updateData.dateOfBirth = new Date(updateData.dateOfBirth);
+        }
+
+        const student = await Student.findById(id);
+        if (!student) {
+            return res.status(404).json({ message: 'Không tìm thấy sinh viên' });
+        }
+
+        if (student.school.toString() !== req.user.school.toString()) {
+            return res.status(403).json({ message: 'Bạn không có quyền cập nhật sinh viên này' });
+        }
+
+        Object.assign(student, updateData);
+        await student.save();
+
+        res.json(student);
     } catch (error) {
-      handleError(error, res);
+        handleError(error, res);
     }
-  });
+});
 
 // Xóa sinh viên
 router.delete('/students/:id', authenticateSchoolAdmin, async (req, res) => {
@@ -1195,7 +1210,6 @@ router.delete('/students/:id', authenticateSchoolAdmin, async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 });
-
 /**
  * @swagger
  * /api/school/students:
@@ -1379,7 +1393,8 @@ router.put('/update-password-rule', authenticateSchoolAdmin, async (req, res) =>
 
         res.status(200).json({ message: 'Cập nhật quy tắc mật khẩu thành công.', passwordRule: school.studentApiConfig.passwordRule });
     } catch (error) {
-        res.status(400).json({ message: 'Lỗi khi cập nhật quy tắc mật khẩu.', error: error.message });
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
     }
 });
 /**
@@ -1470,12 +1485,8 @@ router.post('/check-student-api-connection', authenticateSchoolAdmin, async (req
             }
         }
     } catch (error) {
-        console.error('Server error:', error);
-        res.status(500).json({
-            message: 'Lỗi server khi kiểm tra kết nối API.',
-            code: 'SERVER_ERROR',
-            details: error.message
-        });
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
     }
 });
 /**
@@ -1503,7 +1514,8 @@ router.get('/unapproved-students', authenticateSchoolAdmin, async (req, res) => 
             .populate('major', 'name');
         res.status(200).json(students);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
     }
 });
 /**
@@ -1530,15 +1542,19 @@ router.get('/unapproved-students', authenticateSchoolAdmin, async (req, res) => 
  */
 router.get('/majors', authenticateSchoolAccount, async (req, res) => {
     try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
         let query = {};
         if (req.query.search) {
             query.name = { $regex: new RegExp('^' + req.query.search, 'i') };
         }
 
+        const total = await Major.countDocuments(query);
         const majors = await Major.find(query)
             .select('_id name description')
             .sort({ name: 1 })
-            .limit(10);
+            .skip((page - 1) * limit)
+            .limit(limit);
 
         const formattedMajors = majors.map(major => ({
             _id: major._id,
@@ -1546,9 +1562,15 @@ router.get('/majors', authenticateSchoolAccount, async (req, res) => {
             description: major.description
         }));
 
-        res.status(200).json(formattedMajors);
+        res.status(200).json({
+            majors: formattedMajors,
+            currentPage: page,
+            totalPages: Math.ceil(total / limit),
+            totalMajors: total
+        });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
     }
 });
 /**
@@ -1575,8 +1597,257 @@ router.get('/dashboard', authenticateSchoolAccount, async (req, res) => {
         const dashboardData = await getSchoolDashboardData(schoolId);
         res.status(200).json(dashboardData);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
+    }
+});
+// Tạo tài khoản faculty
+router.post('/create-faculty', authenticateSchoolAdmin, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const schoolId = req.user.school;
+        const { facultyName, facultyDescription, headName, email, password, majors } = req.body;
+
+        const school = await School.findById(schoolId).session(session);
+        if (!school) {
+            throw new Error('Không tìm thấy trường học.');
+        }
+
+        const existingFaculty = school.faculties.find(faculty => faculty.name === facultyName);
+        if (existingFaculty) {
+            throw new Error('Khoa đã tồn tại.');
+        }
+
+        const existingAccount = school.accounts.find(account => account.email === email);
+        if (existingAccount) {
+            throw new Error('Email đã được sử dụng.');
+        }
+
+        const processedMajors = await Promise.all(majors.map(async (major) => {
+            let majorName = typeof major === 'string' ? major : (major.name || '');
+            if (!majorName.trim()) {
+                throw new Error('Tên ngành học không được để trống');
+            }
+            majorName = majorName.trim();
+            
+            let existingMajor = await Major.findOne({ name: { $regex: new RegExp(`^${majorName}$`, 'i') } }).session(session);
+            if (!existingMajor) {
+                existingMajor = new Major({ name: majorName });
+                await existingMajor.save({ session });
+            }
+            return existingMajor._id;
+        }));
+        
+        // Loại bỏ các phần tử trùng lặp
+        const uniqueMajors = [...new Set(processedMajors)];
+
+        const newFaculty = {
+            _id: new mongoose.Types.ObjectId(),
+            name: facultyName,
+            description: facultyDescription,
+            majors: uniqueMajors
+        };
+        
+        const newAccount = {
+            name: headName,
+            email,
+            password: password,
+            role: {
+                name: 'faculty-head',
+                faculty: newFaculty._id
+            }
+        };
+
+        school.faculties.push(newFaculty);
+        school.accounts.push(newAccount);
+        await school.save({ session });
+
+        await session.commitTransaction();
+        session.endSession();
+
+        res.status(201).json({ 
+            message: 'Tạo khoa và tài khoản trưởng khoa thành công.', 
+            faculty: newFaculty,
+            facultyHead: newAccount
+        });
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
+    }
+});
+router.get('/faculties', authenticateSchoolAdmin, async (req, res) => {
+    try {
+        const schoolId = req.user.school;
+        const school = await School.findById(schoolId)
+            .populate('faculties.majors', 'name')
+            .populate({
+                path: 'accounts',
+                match: { 'role.name': 'faculty-head' },
+                select: 'name role.faculty'
+            });
+
+        if (!school) {
+            return res.status(404).json({ message: 'Không tìm thấy trường học.' });
+        }
+
+        const formattedFaculties = school.faculties.map(faculty => {
+            const facultyHead = school.accounts.find(account => 
+                account.role.faculty && account.role.faculty.toString() === faculty._id.toString()
+            );
+
+            return {
+                _id: faculty._id,
+                name: faculty.name,
+                description: faculty.description,
+                majorsCount: faculty.majors.length,
+                headName: facultyHead ? facultyHead.name : 'Chưa có trưởng khoa'
+            };
+        });
+
+        res.status(200).json(formattedFaculties);
+    } catch (error) {
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
+    }
+});
+router.get('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
+    try {
+        const schoolId = req.user.school;
+        const facultyId = req.params.id;
+
+        const school = await School.findById(schoolId).populate('faculties.majors', 'name');
+        if (!school) {
+            return res.status(404).json({ message: 'Không tìm thấy trường học.' });
+        }
+
+        const faculty = school.faculties.id(facultyId);
+        if (!faculty) {
+            return res.status(404).json({ message: 'Không tìm thấy khoa.' });
+        }
+
+        const facultyHead = school.accounts.find(account => 
+            account.role.name === 'faculty-head' && account.role.faculty && account.role.faculty.toString() === facultyId
+        );
+
+        const formattedFaculty = {
+            _id: faculty._id,
+            name: faculty.name,
+            description: faculty.description,
+            avatar: faculty.avatar,
+            majors: faculty.majors.map(major => ({
+                _id: major._id,
+                name: major.name
+            })),
+            head: facultyHead ? {
+                _id: facultyHead._id,
+                name: facultyHead.name,
+                email: facultyHead.email,
+                avatar: facultyHead.avatar
+            } : null,
+            studentsCount: await Student.countDocuments({ major: { $in: faculty.majors } }),
+            tasksCount: facultyHead ? await Task.countDocuments({ assignedBy: facultyHead._id }) : 0
+        };
+
+        res.status(200).json(formattedFaculty);
+    } catch (error) {
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
+    }
+});
+router.put('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const schoolId = req.user.school;
+        const facultyId = req.params.id;
+        const { name, description, majors, avatar } = req.body;
+
+        const school = await School.findById(schoolId).session(session);
+        if (!school) {
+            throw new Error('Không tìm thấy trường học.');
+        }
+
+        const faculty = school.faculties.id(facultyId);
+        if (!faculty) {
+            throw new Error('Không tìm thấy khoa.');
+        }
+
+        faculty.name = name || faculty.name;
+        faculty.description = description || faculty.description;
+        faculty.avatar = avatar || faculty.avatar;
+
+        if (majors && Array.isArray(majors)) {
+            const processedMajors = await Promise.all(majors.map(async (major) => {
+                let majorName = typeof major === 'string' ? major : (major.name || '');
+                if (!majorName.trim()) {
+                    throw new Error('Tên ngành học không được để trống');
+                }
+                majorName = majorName.trim();
+                
+                let existingMajor = await Major.findOne({ name: { $regex: new RegExp(`^${majorName}$`, 'i') } }).session(session);
+                if (!existingMajor) {
+                    existingMajor = new Major({ name: majorName });
+                    await existingMajor.save({ session });
+                }
+                return existingMajor._id;
+            }));
+            
+            // Loại bỏ các phần tử trùng lặp
+            faculty.majors = [...new Set(processedMajors)];
+        }
+
+        await school.save({ session });
+        await session.commitTransaction();
+        session.endSession();
+
+        res.status(200).json({ message: 'Cập nhật thông tin khoa thành công.', faculty });
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
+    }
+});
+router.delete('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
+    try {
+        const schoolId = req.user.school;
+        const facultyId = req.params.id;
+
+        const school = await School.findById(schoolId);
+        if (!school) {
+            return res.status(404).json({ message: 'Không tìm thấy trường học.' });
+        }
+
+        const facultyIndex = school.faculties.findIndex(faculty => faculty._id.toString() === facultyId);
+
+        if (facultyIndex === -1) {
+            return res.status(404).json({ message: 'Không tìm thấy khoa.' });
+        }
+
+        // Kiểm tra xem có tài khoản faculty head nào đang quản lý khoa này không
+        const hasFacultyHead = school.accounts.some(account => 
+            account.role.name === 'faculty-head' && 
+            account.role.faculty.toString() === facultyId
+        );
+
+        if (hasFacultyHead) {
+            return res.status(400).json({ message: 'Không thể xóa khoa vì vẫn còn tài khoản faculty head đang quản lý.' });
+        }
+
+        school.faculties.splice(facultyIndex, 1);
+        await school.save();
+
+        res.status(200).json({ message: 'Đã xóa khoa thành công.' });
+    } catch (error) {
+        const errorResponse = handleError(error);
+        res.status(errorResponse.status).json({ message: errorResponse.message });
     }
 });
 
 export default router;
+

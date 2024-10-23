@@ -8,7 +8,7 @@ const notificationMessages = {
   },
   project: {
       openRecruitment: (projectTitle) => `**Dự án "${projectTitle}"** đã được mở tuyển dụng thành công. Hãy chuẩn bị đón nhận những ứng viên tài năng!`,
-      closeRecruitment: (projectTitle) => `**Quá trình tuyển dụng cho dự án "${projectTitle}"** đã kết thúc. Hãy xem xét các ứng viên và lựa chọn những người phù hợp nhất.`,
+      closeRecruitment: (projectTitle) => `**Quá trình tuyển dụng cho dự án "${projectTitle}"** đã kết thúc. Hãy xem xét cc ứng viên và lựa ch���n những người phù hợp nhất.`,
       applicationAccepted: (projectTitle) => `**Chúc mừng!** Bạn đã trở thành một mảnh ghép quan trọng của dự án **"${projectTitle}"**. Hãy cùng nhau tạo nên điều kỳ diệu!`,
       applicationExpired: (projectTitle) => `Rất tiếc! Đơn ứng tuyển của bạn cho dự án **"${projectTitle}"** đã hết hạn. Hãy nhanh chóng tìm kiếm cơ hội khác nhé!`,
       applicationRejected: (projectTitle) => `Ôi không! Đơn ứng tuyển của bạn cho dự án **"${projectTitle}"** đã bị từ chối. Đừng nản lòng, cơ hội khác đang chờ bạn!`,
@@ -20,7 +20,7 @@ const notificationMessages = {
       mentorAssigned: (projectTitle) => `**Chúc mừng!** Bạn vừa trở thành người dẫn dắt cho dự án **"${projectTitle}".** Hãy sử dụng kinh nghiệm và tâm huyết của mình để dẫn dắt đội ngũ đến thành công!`,
       newApplicant: (projectTitle) => `**Tin vui!** Một tài năng mới vừa ứng tuyển vào dự án **"${projectTitle}".** Hãy cùng khám phá tiềm năng của họ nào!`,
       applicationSubmitted: (projectTitle) => `**Tuyệt vời!** Bạn vừa đặt một bước chân vào cuộc phiêu lưu mới với dự án **"${projectTitle}".** Hãy giữ vững tinh thần và chờ đợi tin vui nhé!`,
-      notRecruiting: (projectTitle) => `**Rất tiếc,** dự án **"${projectTitle}"** hiện đang tạm ngưng tuyển dụng. Đừng lo lắng, hãy theo dõi để không bỏ lỡ cơ hội trong tương lai nhé!`,
+      notRecruiting: (projectTitle) => `**Rất tiếc,** dự án **"${projectTitle}"** hiện đang tạm ngưng tuyển dụng. ừng lo lắng, hãy theo d��i để không bỏ lỡ cơ hội trong tương lai nhé!`,
       projectUpdated: (projectTitle) => `**Dự án "${projectTitle}"** vừa có cập nhật mới.`,
   },
   task: {
@@ -43,6 +43,15 @@ const notificationMessages = {
       statusUpdated: (taskName, newStatus) => `Trạng thái của task "${taskName}" đã được cập nhật thành **${newStatus}**.`,
       deadlineApproaching: (taskName, daysLeft) => `**Nhắc nhở:** Chỉ còn ${daysLeft} ngày nữa là đến hạn nộp task "${taskName}". Hãy hoàn thành sớm nhé!`,
       cannotSubmit: (taskName) => `**Rất tiếc!** Bạn không thể nộp task "${taskName}" vì đã quá hạn hoặc task đã được đánh giá.`,
+  },
+  survey: {
+    newSurvey: (projectTitle) => `Bạn có một khảo sát mới cho dự án **"${projectTitle}"**. Hãy hoàn thành nó để giúp chúng tôi cải thiện trải nghiệm của bạn!`,
+    surveyCompleted: (projectTitle) => `Cảm ơn bạn đã hoàn thành khảo sát cho dự án **"${projectTitle}"**. Phản hồi của bạn rất quan trọng đối với chúng tôi!`,
+    newMandatorySurvey: (projectTitle) => `Bạn có một khảo sát bắt buộc mới cho dự án **"${projectTitle}"**. Vui lòng hoàn thành nó để tiếp tục quá trình thực tập của bạn.`,
+    newMandatorySurveyForMentor: (projectTitle, studentName) => `Bạn có một khảo sát bắt buộc mới để đánh giá sinh viên **${studentName}** trong dự án **"${projectTitle}"**. Vui lòng hoàn thành nó để đánh giá quá trình thực tập của sinh viên.`,
+    mentorSurveyCompleted: (projectTitle, studentName) => `Cảm ơn bạn đã hoàn thành khảo sát đánh giá sinh viên **${studentName}** trong dự án **"${projectTitle}"**. Đánh giá của bạn rất quan trọng cho quá trình học tập của sinh viên.`,
+    newMandatorySurveyForStudent: (projectTitle) => `Bạn có một khảo sát bắt buộc mới để tự đánh giá quá trình thực tập của mình trong dự án **"${projectTitle}"**. Vui lòng hoàn thành nó để giúp chúng tôi hiểu rõ hơn về trải nghiệm của bạn.`,
+    studentSurveyCompleted: (projectTitle) => `Cảm ơn bạn đã hoàn thành khảo sát tự đánh giá cho dự án **"${projectTitle}"**. Phản hồi của bạn sẽ giúp chúng tôi cải thiện chương trình thực tập.`,
   },
   // Thêm các loại thông báo khác ở đây
 };

@@ -25,7 +25,7 @@ class NotificationStream {
            req.userModel === 'Admin' ||
            (req.userModel === 'CompanyAccount' && notification.recipientRole === req.user.role) ||
            (req.userModel === 'SchoolAccount' && notification.recipientRole === req.user.role))) {
-        res.write(`data: ${JSON.stringify({ notification })}\n\n`);
+        res.write(`data: ${JSON.stringify({ notification: { ...notification.toObject(), relativeLink: notification.relativeLink } })}\n\n`);
       }
     };
 

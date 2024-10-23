@@ -7,6 +7,7 @@ import sanitizeHtml from 'sanitize-html';
 import crypto from 'crypto';
 import { sendEmail } from '../utils/emailService.js';
 import { accountActivationTemplate } from '../utils/emailTemplates.js';
+import softDeletePlugin from '../utils/softDelete.js';
 
 const { Schema } = mongoose;
 
@@ -16,6 +17,30 @@ const sanitizeOptions = {
   disallowedTagsMode: 'discard'
 };
 
+const FacultySchema = new Schema({
+    name: { 
+        type: String, 
+        required: [true, 'Tên khoa không được bỏ trống'],
+        trim: true,
+        minlength: [2, 'Tên khoa phải có ít nhất 2 ký tự'],
+        maxlength: [100, 'Tên khoa không được vượt quá 100 ký tự'],
+    },
+    description: {
+        type: String,
+        trim: true,
+        maxlength: [500, 'Mô tả khoa không được vượt quá 500 ký tự'],
+    },
+    majors: [{
+        type: Schema.Types.ObjectId,
+        ref: 'Major'
+    }],
+    facultyHead: {
+        type: Schema.Types.ObjectId,
+        ref: 'SchoolAccount',
+        unique: true
+    }
+}, { timestamps: true });
+
 const SchoolAccountSchema = new Schema({
     name: { 
         type: String, 
@@ -23,7 +48,8 @@ const SchoolAccountSchema = new Schema({
         trim: true,
         minlength: [2, 'Tên phải có ít nhất 2 ký tự'],
         maxlength: [100, 'Tên không được vượt quá 100 ký tự'],
-        set: (value) => sanitizeHtml(value, sanitizeOptions)
+        set: (value) => sanitizeHtml(value, sanitizeOptions),
+        default: 'Tên tài khoản'
     },
     email: { 
         type: String, 
@@ -31,7 +57,12 @@ const SchoolAccountSchema = new Schema({
         unique: [true, 'Email đã tồn tại'],
         lowercase: true,
         trim: true,
-        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,})+$/, 'Vui lòng nhập email hợp lệ']
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: props => `${props.value} không phải là email hợp lệ!`
+        }
     },
     passwordHash: {
         type: String,
@@ -42,22 +73,34 @@ const SchoolAccountSchema = new Schema({
             name: {
                 type: String,
                 enum: {
-                    values: ['admin', 'sub-admin', 'department-head', 'faculty-head'],
+                    values: ['admin', 'sub-admin', 'department-head', 'faculty-head', 'faculty-staff'],
                     message: '{VALUE} không phải là vai trò hợp lệ'
                 },
                 required: [true, 'Vui lòng chọn vai trò.']
             },
             department: {
                 type: String,
-                required: function() { 
-                    return this.role && this.role.name && 
-                        (this.role.name === 'department-head' || this.role.name === 'faculty-head'); 
+                required: function() {
+                    return this.role.name === 'department-head' || this.role.name === 'faculty-head' || this.role.name === 'faculty-staff';
                 },
                 trim: true,
                 minlength: [2, 'Tên phòng/ban phải có ít nhất 2 ký tự'],
                 maxlength: [100, 'Tên phòng/ban không được vượt quá 100 ký tự'],
-                set: (value) => sanitizeHtml(value, sanitizeOptions)
-            }
+            },
+            faculty: {
+                type: Schema.Types.ObjectId,
+                ref: 'Faculty',
+                required: function() {
+                    return this.role.name === 'faculty-head' || this.role.name === 'faculty-staff';
+                }
+            },
+            majors: [{
+                type: Schema.Types.ObjectId,
+                ref: 'Major',
+                required: function() {
+                    return this.role && this.role.name === 'faculty-head';
+                }
+            }]
         },
         _id: false,
         required: true
@@ -109,6 +152,12 @@ SchoolAccountSchema.pre('save', async function(next) {
 });
 
 const SchoolSchema = new Schema({
+    symbol: {
+        type: String,
+        trim: true,
+        maxlength: [10, 'Ký hiệu trường không được vượt quá 10 ký tự'],
+        set: (value) => sanitizeHtml(value, sanitizeOptions)
+    },
     name: { 
         type: String, 
         required: [true, 'Tên trường không được bỏ trống'],
@@ -147,13 +196,26 @@ const SchoolSchema = new Schema({
             template: { type: String, default: '${ngaysinh}' }
         }
     },
-    logo: { type: String }
+    logo: { type: String },
+    faculties: [FacultySchema],
+    foundedYear: {
+        type: Number,
+        min: 1800,
+        max: new Date().getFullYear()
+    },
+    socialMedia: {
+        facebook: String,
+        linkedin: String,
+        twitter: String
+    },
+    accreditations: [String],
+    campusLocations: [String]
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 // Getter cho trường logo
 SchoolSchema.path('logo').get(function (value) {
     if (!value) return null;
-    return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
+    return value.startsWith('http') ? value : `http://localhost:5000${value.startsWith('/') ? '' : '/'}${value}`;
 });
 
 SchoolAccountSchema.methods.comparePassword = function(candidatePassword) {
@@ -232,14 +294,6 @@ SchoolAccountSchema.statics.login = async function(schoolId, email, password, re
     return { account: accountWithoutPassword, token };
 };
 
-
-SchoolSchema.methods.softDelete = function() {
-    return this.updateOne({ $set: { isDeleted: true } }).exec();
-};
-
-SchoolSchema.methods.restore = function() {
-    return this.updateOne({ $set: { isDeleted: false } }).exec();
-};
 
 SchoolSchema.statics.findByIdAndNotDeleted = async function(id) {
     return this.findOne({ _id: id, isDeleted: false }).exec();
@@ -329,19 +383,29 @@ SchoolSchema.statics.register = async function(schoolData, accountData) {
     }
 };
 
-SchoolSchema.statics.findSchoolAccountById = async function(decoded) {
-    const School = mongoose.model('School'); // Thêm dòng này
+SchoolSchema.statics.findSchoolAccountById = async function(decoded, requiredRole) {
+    const School = mongoose.model('School');
     const school = await School.findOne({ 'accounts._id': decoded._id });
     if (!school) {
         return null;
     }
     const account = school.accounts.id(decoded._id);
-    return account ? {
+    if (!account) {
+        return null;
+    }
+
+    // Kiểm tra vai trò nếu requiredRole được cung cấp
+    if (requiredRole && account.role.name !== requiredRole) {
+        return null;
+    }
+
+    return {
         ...account.toObject(),
         school: school._id,
         schoolId: school._id,
-        role: account.role
-    } : null;
+        role: account.role.name,
+        department: account.role.department
+    };
 };
 
 SchoolSchema.statics.getFilteredAccounts = async function(schoolId, query) {
@@ -456,6 +520,40 @@ SchoolSchema.statics.configureGuestApi = async function(schoolId, apiConfig, pas
     return school;
 };
 
+SchoolSchema.plugin(softDeletePlugin);
+
+SchoolSchema.methods.setFacultyHead = async function(facultyId, accountId) {
+    const faculty = this.faculties.id(facultyId);
+    if (!faculty) {
+        throw new Error('Không tìm thấy khoa.');
+    }
+
+    const account = this.accounts.id(accountId);
+    if (!account) {
+        throw new Error('Không tìm thấy tài khoản.');
+    }
+
+    // Kiểm tra xem tài khoản có thuộc khoa này không
+    if (account.role.faculty && account.role.faculty.toString() !== facultyId.toString()) {
+        throw new Error('Tài khoản không thuộc khoa này.');
+    }
+
+    // Kiểm tra xem khoa đã có trưởng khoa chưa
+    if (faculty.facultyHead) {
+        const oldHead = this.accounts.id(faculty.facultyHead);
+        if (oldHead) {
+            oldHead.role = { name: 'faculty-staff', faculty: facultyId };
+        }
+    }
+
+    // Cập nhật tài khoản mới thành trưởng khoa
+    account.role = { name: 'faculty-head', faculty: facultyId };
+    faculty.facultyHead = accountId;
+
+    await this.save();
+    return faculty;
+};
+
 const School = mongoose.model('School', SchoolSchema);
 export default School;
 
@@ -518,3 +616,8 @@ export default School;
  *           type: boolean
  *           description: Trạng thái xóa mềm của trường học
  */
+
+
+
+
+

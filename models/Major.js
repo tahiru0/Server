@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import sanitizeHtml from 'sanitize-html';
+import softDeletePlugin from '../utils/softDelete.js';
 
 const sanitizeOptions = {
   allowedTags: [],
@@ -48,6 +49,8 @@ majorSchema.pre('findOneAndUpdate', function(next) {
     }
     next();
 });
+
+majorSchema.plugin(softDeletePlugin);
 
 const Major = mongoose.model('Major', majorSchema);
 export default Major;

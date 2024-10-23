@@ -2,6 +2,10 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import xlsx from 'xlsx';
+import mongoose from 'mongoose';
+import School from '../models/School.js';
+import Major from '../models/Major.js';
 
 const allowedImageExtensions = ['.jpg', '.jpeg', '.png', '.gif'];
 const allowedExcelExtensions = ['.xlsx', '.xls'];
@@ -230,6 +234,142 @@ const handleUploadError = (err, req, res, next) => {
         return res.status(400).json({ message: err.message });
     }
     next();
+};
+
+export const handleExcelUpload = async (file, Model, fieldMapping, schoolId) => {
+  const workbook = xlsx.read(file.buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const data = xlsx.utils.sheet_to_json(sheet);
+
+  // Xử lý tất cả các ngành học trước, không sử dụng transaction
+  const uniqueMajors = [...new Set(data.map(row => row[fieldMapping.major]))];
+  for (const majorName of uniqueMajors) {
+    if (majorName) {
+      try {
+        await Major.findOneAndUpdate(
+          { name: majorName },
+          { name: majorName },
+          { upsert: true, new: true, runValidators: true }
+        );
+        console.log(`Đã xử lý ngành học: ${majorName}`);
+      } catch (error) {
+        console.error('Lỗi khi xử lý ngành học:', error);
+      }
+    }
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const successfulUploads = [];
+    const failedUploads = [];
+
+    for (const row of data) {
+      const mappedData = { school: schoolId };
+      const errorMessages = {};
+
+      for (const [modelField, excelField] of Object.entries(fieldMapping)) {
+        if (row[excelField] !== undefined && row[excelField] !== null) {
+            if (modelField === 'major') {
+                try {
+                  const major = await Major.findOneAndUpdate(
+                    { name: row[excelField] },
+                    { name: row[excelField] },
+                    { upsert: true, new: true, runValidators: true }
+                  );
+                  mappedData[modelField] = major._id;
+                } catch (error) {
+                  console.error('Lỗi khi xử lý ngành học cho sinh viên:', error);
+                  errorMessages.major = error.message || 'Lỗi không xác định khi xử lý ngành học';
+                }
+            } else if (modelField === 'dateOfBirth') {
+            // Xử lý ngày sinh
+            const dateValue = row[excelField];
+            if (dateValue) {
+              let parsedDate;
+              if (typeof dateValue === 'number') {
+                parsedDate = new Date((dateValue - 25569) * 86400 * 1000);
+              } else if (typeof dateValue === 'string') {
+                const parts = dateValue.split('/');
+                if (parts.length === 3) {
+                  parsedDate = new Date(parts[2], parts[1] - 1, parts[0]);
+                } else {
+                  parsedDate = new Date(dateValue);
+                }
+              }
+              if (!isNaN(parsedDate.getTime())) {
+                mappedData[modelField] = parsedDate;
+              } else {
+                errorMessages.dateOfBirth = 'Ngày sinh không hợp lệ';
+              }
+            }
+          } else {
+            mappedData[modelField] = row[excelField];
+          }
+        }
+      }
+
+      if (Object.keys(errorMessages).length > 0) {
+        failedUploads.push({ row: row, mappedData: mappedData, errors: errorMessages });
+      } else {
+        try {
+          mappedData._id = new mongoose.Types.ObjectId();
+          const newDoc = new Model(mappedData);
+          await newDoc.validate();
+          const savedDoc = await newDoc.save({ session });
+          
+          console.log('Sinh viên đã được lưu thành công:', savedDoc);
+          successfulUploads.push(savedDoc);
+        } catch (error) {
+          const errorDetails = {};
+          if (error.name === 'ValidationError') {
+            for (let field in error.errors) {
+              errorDetails[field] = error.errors[field].message;
+            }
+          } else if (error.code === 11000) {
+            errorDetails.general = 'Dữ liệu bị trùng lặp (có thể là email hoặc mã số sinh viên)';
+          } else {
+            errorDetails.general = error.message;
+          }
+          failedUploads.push({ row: row, mappedData: mappedData, errors: errorDetails });
+        }
+      }
+    }
+
+    const totalRecords = data.length;
+    const successCount = successfulUploads.length;
+    const failCount = failedUploads.length;
+
+    const result = {
+      success: successCount > 0,
+      message: `Đã xử lý ${totalRecords} bản ghi. ${successCount} thành công, ${failCount} thất bại.`,
+      data: successfulUploads,
+      errors: failedUploads,
+      totalRecords,
+      successCount,
+      failCount
+    };
+
+    if (failCount > 0) {
+      console.log('Có lỗi xảy ra với một số bản ghi');
+      console.log('Lỗi chi tiết:', failedUploads);
+    } else {
+      console.log('Tất cả bản ghi đã được xử lý thành công');
+    }
+    console.log('Số lượng sinh viên đã tạo:', successfulUploads.length);
+    await session.commitTransaction();
+
+    return result;
+  } catch (error) {
+    console.log('Có lỗi xảy ra, hủy bỏ transaction');
+    console.log('Lỗi chi tiết:', failedUploads);
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
 export { useImageUpload, useExcelUpload, usePDFUpload, useRegistrationImageUpload, handleUploadError, useCompressedFileUpload };

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import Config from '../models/Config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +77,45 @@ export const handleError = (error) => {
         return { status: 400, message: messages.join('. ') };
     }
   
+    if (error.status === 503) {
+        return { status: 503, message: 'Hệ thống đang bảo trì. Vui lòng thử lại sau.' };
+    }
+  
     // Thay đổi thông báo lỗi 500 để không tiết lộ chi tiết
     return { status: 500, message: 'Đã xảy ra lỗi. Vui lòng thử lại sau.' };
 };
+
+export const getErrorStats = () => {
+  const logDirectory = path.join(projectRoot, 'logs');
+  const today = new Date();
+  const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const errorStats = {
+    total: 0,
+    byDate: {},
+    byType: {}
+  };
+
+  fs.readdirSync(logDirectory).forEach(file => {
+    const filePath = path.join(logDirectory, file);
+    const fileDate = new Date(file.split('.')[0]);
+
+    if (fileDate >= lastWeek && fileDate <= today) {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const errors = content.split('\n').filter(line => line.trim() !== '');
+
+      errors.forEach(error => {
+        errorStats.total++;
+
+        const dateStr = error.match(/\[(.*?)\]/)[1].split('T')[0];
+        errorStats.byDate[dateStr] = (errorStats.byDate[dateStr] || 0) + 1;
+
+        const errorType = error.includes('Lỗi:') ? error.split('Lỗi:')[1].trim().split(':')[0] : 'Unknown';
+        errorStats.byType[errorType] = (errorStats.byType[errorType] || 0) + 1;
+      });
+    }
+  });
+
+  return errorStats;
+};
+

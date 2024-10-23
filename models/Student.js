@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 dotenv.config();
+import softDeletePlugin from '../utils/softDelete.js';
+import moment from 'moment';
 
 const { Schema } = mongoose;
 import LoginHistory from './LoginHistory.js';
@@ -38,7 +40,7 @@ const StudentSchema = new Schema({
         required: [true, 'Email không được bỏ trống'],
         unique: [true, 'Email đã tồn tại'],
         maxlength: [255, 'Email không được vượt quá 255 ký tự'],
-        set: (value) => validator.normalizeEmail(value)
+        validate: [validator.isEmail, 'Email không hợp lệ'],
     },
     passwordHash: {
         type: String,
@@ -47,8 +49,6 @@ const StudentSchema = new Schema({
         type: String,
         required: [true, 'Mã số sinh viên không được bỏ trống'],
         maxlength: [20, 'Mã số sinh viên không được vượt quá 20 ký tự'],
-        set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-        get: (value) => value ? decodeHtmlEntities(value) : ''
     },
     school: { type: Schema.Types.ObjectId, ref: 'School', required: [true, 'Trường không được bỏ trống'] },
     createdBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
@@ -60,7 +60,38 @@ const StudentSchema = new Schema({
         maxlength: [1024, 'Refresh token không được vượt quá 1024 ký tự']
     },
     lastLogin: { type: Date },
-    dateOfBirth: { type: Date },
+    dateOfBirth: {
+        type: Date,
+        validate: {
+            validator: function(v) {
+                return v === null || v === undefined || (v instanceof Date && !isNaN(v));
+            },
+            message: 'Ngày sinh không hp lệ'
+        },
+        set: function(v) {
+            if (v === null || v === undefined || v === '') {
+                return undefined;
+            }
+            if (typeof v === 'string') {
+                const formats = ['DD/MM/YYYY', 'D/M/YYYY', 'YYYY-MM-DD', 'YYYY/MM/DD'];
+                for (let format of formats) {
+                    const parsedDate = moment(v, format, true);
+                    if (parsedDate.isValid()) {
+                        return parsedDate.toDate();
+                    }
+                }
+            } else if (typeof v === 'number') {
+                // Xử lý ngày dạng số (Excel serial date)
+                const excelDate = moment('1899-12-30').add(v, 'days');
+                if (excelDate.isValid()) {
+                    return excelDate.toDate();
+                }
+            } else if (v instanceof Date) {
+                return v;
+            }
+            throw new Error('Ngày sinh không hợp lệ');
+        }
+    },
     gender: {
         type: String,
         enum: ['Nam', 'Nữ', 'Khác'],
@@ -72,17 +103,30 @@ const StudentSchema = new Schema({
         maxlength: [15, 'Số điện thoại không được vượt quá 15 ký tự'],
         validate: {
             validator: function (v) {
-                return /^[0-9]{10,12}$/.test(v); // Hỗ trợ số điện thoại từ 10 đến 12 chữ số
+                if (!v) return true; // Cho phép số điện thoại trống
+                let phoneNumber = v.toString().replace(/\D/g, ''); // Loại bỏ tất cả các ký tự không phải số
+                return /^0\d{9,14}$/.test(phoneNumber); // Kiểm tra số điện thoại bắt đầu bằng 0 và có từ 10 đến 15 chữ số
             },
             message: props => `${props.value} không phải là số điện thoại hợp lệ!`
         },
+        set: function(v) {
+            if (v) {
+                let phoneNumber = v.toString().replace(/\D/g, '');
+                if (phoneNumber.length === 9) {
+                    return '0' + phoneNumber;
+                }
+                if (phoneNumber.length >= 10 && !phoneNumber.startsWith('0')) {
+                    return '0' + phoneNumber;
+                }
+                return phoneNumber;
+            }
+            return v;
+        }
     },
     address: {
         type: String,
         trim: true,
         maxlength: [200, 'Địa chỉ không được vượt quá 200 ký tự'],
-        set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-        get: (value) => value ? decodeHtmlEntities(value) : ''
     },
     notificationSettings: {
         taskNotifications: { type: Boolean, default: true },
@@ -95,42 +139,30 @@ const StudentSchema = new Schema({
         title: {
             type: String,
             maxlength: [100, 'Tiêu đề kinh nghiệm không được vượt quá 100 ký tự'],
-            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         company: {
             type: String,
             maxlength: [100, 'Tên công ty không được vượt quá 100 ký tự'],
-            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         startDate: Date,
         endDate: Date,
         description: {
             type: String,
             maxlength: [500, 'Mô tả kinh nghiệm không được vượt quá 500 ký tự'],
-            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-            get: (value) => value ? decodeHtmlEntities(value) : ''
         }
     }],
     education: [{
         school: {
             type: String,
             maxlength: [100, 'Tên trường không được vượt quá 100 ký tự'],
-            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         degree: {
             type: String,
             maxlength: [50, 'Bằng cấp không được vượt quá 50 ký tự'],
-            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         fieldOfStudy: {
             type: String,
             maxlength: [100, 'Ngành học không được vượt quá 100 ký tự'],
-            set: (value) => value ? sanitizeHtml(value, sanitizeOptions) : '',
-            get: (value) => value ? decodeHtmlEntities(value) : ''
         },
         startDate: Date,
         endDate: Date
@@ -157,6 +189,17 @@ const StudentSchema = new Schema({
     lastNotifiedDevice: {
         type: Date,
         default: null
+    },
+    socialMedia: {
+        facebook: String,
+        linkedin: String,
+        github: String
+    },
+    interests: [String],
+    achievements: [String],
+    faculty: {
+        _id: { type: Schema.Types.ObjectId },
+        name: { type: String }
     }
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
@@ -183,6 +226,7 @@ StudentSchema.methods.updateStudentInfo = async function (updateData) {
             this[key] = updateData[key];
         }
     }
+    await this.updateFaculty();
     await this.save();
     return this;
 };
@@ -191,9 +235,9 @@ StudentSchema.statics.getImportantStudentInfo = async function (filters = {}) {
     const searchCriteria = { ...filters, isDeleted: false };
 
     return this.find(searchCriteria)
-        .select('_id name avatar school isApproved studentId major')
-        .populate('school', 'name') // Populate tên trường
-        .populate('major', 'name'); // Populate tên ngành học
+        .select('_id name avatar school isApproved studentId major faculty')
+        .populate('school', 'name')
+        .populate('major', 'name');
 };
 
 StudentSchema.pre('save', async function (next) {
@@ -226,6 +270,9 @@ StudentSchema.pre('save', async function (next) {
         const encodedUrl = encodeUrl(initial);
         if (!this.avatar || this.avatar.startsWith('/default/')) {
             this.avatar = encodedUrl;
+        }
+        if (this.isModified('major') || this.isModified('school')) {
+            await this.updateFaculty();
         }
     }
 
@@ -462,7 +509,7 @@ StudentSchema.pre('findOneAndUpdate', function (next) {
 // Thêm getter cho trường avatar
 StudentSchema.path('avatar').get(function (value) {
     if (!value) return null;
-    return value.startsWith('http') ? value : `http://localhost:5000${value}`;
+    return value.startsWith('http') ? value : `http://localhost:5000${value.startsWith('/') ? '' : '/'}${value}`;
 });
 
 StudentSchema.path('cv').get(function (value) {
@@ -520,7 +567,7 @@ StudentSchema.methods.getCurrentProjectDetails = async function () {
         title: project.title,
         description: project.description,
         companyName: project.company.name,
-        companyLogo: project.company.logo ? `http://localhost:5000${project.company.logo}` : null,
+        companyLogo: project.company.logo ? (project.company.logo.startsWith('http') ? project.company.logo : `http://localhost:5000${project.company.logo.startsWith('/') ? '' : '/'}${project.company.logo}`) : null,
         status: project.status,
         isRecruiting: project.isRecruiting,
         maxApplicants: project.maxApplicants,
@@ -584,7 +631,50 @@ StudentSchema.methods.removeCurrentProject = async function () {
     await this.save();
 };
 
-// Middleware để đảm bảo chỉ sinh viên đã được phê duyệt mới có thể được thêm vào dự án
+StudentSchema.methods.checkIn = async function (projectId, date) {
+    const Attendance = mongoose.model('Attendance');
+    const attendance = new Attendance({
+        student: this._id,
+        project: projectId,
+        date: date,
+        status: 'present',
+        checkedInBy: 'student'
+    });
+    await attendance.save();
+    return attendance;
+};
+
+StudentSchema.methods.submitDailyReport = async function (projectId, date, report) {
+    const Attendance = mongoose.model('Attendance');
+    const attendance = await Attendance.findOne({
+        student: this._id,
+        project: projectId,
+        date: date
+    });
+    if (!attendance) {
+        throw new Error('Không tìm thấy bản ghi điểm danh cho ngày này');
+    }
+    attendance.dailyReport = report;
+    await attendance.save();
+    return attendance;
+};
+
+StudentSchema.methods.submitWeeklyReport = async function (projectId, weekStartDate, weekEndDate, summary) {
+    const WeeklyReport = mongoose.model('WeeklyReport');
+    const weeklyReport = new WeeklyReport({
+        student: this._id,
+        project: projectId,
+        weekStartDate,
+        weekEndDate,
+        summary,
+        status: 'submitted',
+        submittedAt: new Date()
+    });
+    await weeklyReport.save();
+    return weeklyReport;
+};
+
+// Middleware để đảm bảo chỉ sinh viên đã đưc phê duyệt mới có thể được thêm vào dự án
 StudentSchema.pre('save', async function (next) {
     if (this.isModified('isApproved') && this.isApproved) {
         // Nếu sinh viên vừa được phê duyệt, cập nhật tất cả các dự án liên quan
@@ -604,6 +694,67 @@ StudentSchema.pre('save', async function (next) {
 // Đảm bảo rằng các getter được bao gồm khi chuyển đổi sang JSON
 StudentSchema.set('toJSON', { getters: true });
 StudentSchema.set('toObject', { getters: true });
+StudentSchema.plugin(softDeletePlugin);
+
+
+StudentSchema.statics.findByFaculty = async function(schoolId, facultyName) {
+  const School = mongoose.model('School');
+  const school = await School.findById(schoolId);
+  
+  if (!school) return [];
+  
+  const faculty = school.faculties.find(f => f.name === facultyName);
+  
+  if (!faculty) return [];
+  
+  const majorIds = faculty.majors.map(m => m._id);
+  
+  return this.find({
+    school: schoolId,
+    major: { $in: majorIds }
+  }).populate('major');
+};
+
+StudentSchema.methods.updateFaculty = async function() {
+    if (!this.school || !this.major) {
+        this.faculty = undefined;
+        return;
+    }
+
+    const School = mongoose.model('School');
+    const school = await School.findById(this.school);
+
+    if (!school) {
+        this.faculty = undefined;
+        return;
+    }
+
+    const faculty = school.faculties.find(f => 
+        f.majors.some(m => m._id.toString() === this.major.toString())
+    );
+
+    if (faculty) {
+        this.faculty = {
+            _id: faculty._id,
+            name: faculty.name
+        };
+    } else {
+        this.faculty = undefined;
+    }
+};
+
+StudentSchema.statics.getOneStudent = async function (id) {
+    const student = await this.findById(id)
+        .select('_id name avatar school isApproved studentId major faculty')
+        .populate('school', 'name')
+        .populate('major', 'name');
+
+    if (student) {
+        await student.updateFaculty();
+    }
+
+    return student;
+};
 
 export default mongoose.model('Student', StudentSchema);
 
@@ -648,3 +799,8 @@ export default mongoose.model('Student', StudentSchema);
  *           type: string
  *           description: Token làm mới để cấp lại access token
  */
+
+
+
+
+

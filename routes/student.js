@@ -13,6 +13,8 @@ import { useImageUpload, usePDFUpload, useCompressedFileUpload } from '../utils/
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
+import Report from '../models/Report.js';
+import Major from '../models/Major.js';
 
 const deleteFile = (filePath) => {
   if (fs.existsSync(filePath)) {
@@ -37,11 +39,26 @@ const authenticateStudent = authenticate(Student, Student.findStudentById);
 // Đăng ký tài khoản sinh viên
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, studentId, schoolId } = req.body;
+    const { name, email, password, studentId, schoolId, facultyId, majorId } = req.body;
 
     const school = await School.findById(schoolId);
     if (!school) {
       return res.status(404).json({ message: 'Không tìm thấy trường học' });
+    }
+
+    const faculty = school.faculties.id(facultyId);
+    if (!faculty) {
+      return res.status(404).json({ message: 'Không tìm thấy khoa' });
+    }
+
+    const major = await Major.findById(majorId);
+    if (!major) {
+      return res.status(404).json({ message: 'Không tìm thấy ngành học' });
+    }
+
+    // Kiểm tra xem ngành học có thuộc khoa đã chọn không
+    if (!faculty.majors.includes(majorId)) {
+      return res.status(400).json({ message: 'Ngành học không thuộc khoa đã chọn' });
     }
 
     const student = new Student({
@@ -49,21 +66,37 @@ router.post('/register', async (req, res) => {
       email,
       password,
       studentId,
-      school: schoolId
+      school: schoolId,
+      faculty: facultyId,
+      major: majorId,
+      isApproved: false // Mặc định là chưa được duyệt
     });
 
     await student.save();
 
-    // Gửi thông báo cho admin của trường
-    await createOrUpdateGroupedNotification({
-      schoolId,
-      studentName: student.name,
-      studentId: student._id
+    // Tìm faculty-head quản lý ngành học này
+    const facultyHead = await School.findOne({
+      _id: schoolId,
+      'accounts.role.name': 'faculty-head',
+      'accounts.role.faculty': facultyId
     });
 
-    res.status(201).json({ message: 'Đăng ký thành công. Vui lòng chờ nhà trường xác nhận tài khoản.' });
+    if (facultyHead) {
+      // Gửi thông báo cho faculty-head
+      await createOrUpdateGroupedNotification({
+        schoolId,
+        facultyHeadId: facultyHead.accounts.find(acc => acc.role.faculty.toString() === facultyId.toString())._id,
+        studentName: student.name,
+        studentId: student._id,
+        majorName: major.name,
+        facultyName: faculty.name
+      });
+    }
+
+    res.status(201).json({ message: 'Đăng ký thành công. Vui lòng chờ khoa xác nhận tài khoản.' });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -411,7 +444,7 @@ router.get('/applied-projects', authenticateStudent, async (req, res) => {
       description: project.description,
       company: {
         name: project.company.name,
-        logo: project.company.logo ? (project.company.logo.startsWith('http') ? project.company.logo : `http://localhost:5000${project.company.logo}`) : null,
+        logo: project.company.logo,
         _id: project.company._id
       },
       status: project.status,
@@ -428,13 +461,26 @@ router.get('/applied-projects', authenticateStudent, async (req, res) => {
 // Lấy danh sách task được giao cho sinh viên
 router.get('/tasks', authenticateStudent, async (req, res) => {
   try {
-    const student = await Student.findById(req.user._id);
-    if (!student) {
-      return res.status(404).json({ message: 'Không tìm thấy thông tin sinh viên.' });
-    }
+    const tasks = await Task.find({
+      assignedTo: req.user._id,
+      isStudentActive: true
+    }).select('_id name description deadline status taskType fileRequirements')
+      .populate('project', 'title');
 
-    const tasks = await student.getAssignedTasks();
-    res.status(200).json(tasks);
+    const formattedTasks = tasks.map(task => ({
+      _id: task._id,
+      name: task.name,
+      description: task.description,
+      deadline: task.deadline,
+      status: task.status,
+      taskType: task.taskType,
+      project: {
+        title: task.project.title
+      },
+      fileRequirements: task.fileRequirements
+    }));
+
+    res.status(200).json(formattedTasks);
   } catch (error) {
     const { status, message } = handleError(error);
     res.status(status).json({ message });
@@ -683,15 +729,23 @@ router.post('/tasks/:taskId/submit', authenticateStudent, async (req, res) => {
     switch (task.taskType) {
       case 'fileUpload':
         const customDir = `company/${task.project.company}/project/${task.project._id}/task/${taskId}/submissions`;
-        const upload = useCompressedFileUpload(customDir, '', task.fileRequirements.maxSize, task.fileRequirements.allowedExtensions);
+        const allowedExtensions = task.fileRequirements.allowedExtensions.length > 0 
+          ? task.fileRequirements.allowedExtensions 
+          : ['.zip', '.rar', '.7z', '.tar', '.gz']; // Mặc định nếu mảng rỗng
+        const upload = useCompressedFileUpload(customDir, '', task.fileRequirements.maxSize, allowedExtensions);
 
         upload.single('file')(req, res, async (err) => {
           if (err) {
+            if (err instanceof multer.MulterError) {
+              if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ message: `Kích thước file vượt quá giới hạn cho phép (${task.fileRequirements.maxSize}MB).` });
+              }
+            }
             return res.status(400).json({ message: err.message });
           }
 
           if (!req.file) {
-            return res.status(400).json({ message: 'Không tìm thấy file.' });
+            return res.status(400).json({ message: 'Không tìm thấy file. Vui lòng tải lên một file.' });
           }
 
           const relativePath = path.relative('public', req.file.path).replace(/\\/g, '/');
@@ -772,7 +826,7 @@ router.get('/tasks/:taskId', authenticateStudent, async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy task.' });
     }
 
-    const formattedTask = {
+    let formattedTask = {
       _id: task._id,
       name: task.name,
       description: task.description,
@@ -783,15 +837,93 @@ router.get('/tasks/:taskId', authenticateStudent, async (req, res) => {
         _id: task.project._id,
         title: task.project.title
       },
-      questions: task.questions,
+      questions: task.questions.map(q => ({
+        question: q.question,
+        options: q.options
+      })),
       fileRequirements: task.fileRequirements,
-      studentAnswer: task.studentAnswer,
-      studentFile: task.studentFile,
-      feedback: task.feedback,
       materialFile: task.materialFile
     };
 
+    if (['Submitted', 'Evaluated', 'Overdue', 'Completed'].includes(task.status)) {
+      formattedTask.studentAnswer = task.studentAnswer;
+      formattedTask.studentFile = task.studentFile;
+    }
+
+    if (['Completed', 'Evaluated'].includes(task.status)) {
+      formattedTask.rating = task.rating;
+      formattedTask.comment = task.comment;
+
+      if (task.taskType === 'multipleChoice') {
+        formattedTask.questions = task.questions.map(q => ({
+          ...q.toObject(),
+          correctAnswer: q.correctAnswer
+        }));
+      }
+
+      // Lấy đánh giá từ Report
+      const report = await Report.findOne({
+        student: req.user._id,
+        project: task.project._id,
+        'taskEvaluations.task': task._id
+      });
+
+      if (report) {
+        const taskEvaluation = report.taskEvaluations.find(te => te.task.toString() === task._id.toString());
+        if (taskEvaluation) {
+          formattedTask.evaluations = taskEvaluation.evaluations;
+          formattedTask.averageRating = taskEvaluation.averageRating;
+        }
+      }
+    }
+
     res.status(200).json(formattedTask);
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
+});
+// Lấy danh sách khoa của trường
+router.get('/faculties/:schoolId', async (req, res) => {
+  try {
+    const { schoolId } = req.params;
+    const school = await School.findById(schoolId).select('faculties');
+    
+    if (!school) {
+      return res.status(404).json({ message: 'Không tìm thấy trường học' });
+    }
+
+    const faculties = school.faculties.map(faculty => ({
+      _id: faculty._id,
+      name: faculty.name
+    }));
+
+    res.status(200).json(faculties);
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
+});
+
+// Lấy danh sách ngành học theo khoa của trường
+router.get('/majors/:schoolId', async (req, res) => {
+  try {
+    const { schoolId } = req.params;
+    const school = await School.findById(schoolId).populate('faculties.majors');
+    
+    if (!school) {
+      return res.status(404).json({ message: 'Không tìm thấy trường học' });
+    }
+
+    const majors = school.faculties.reduce((acc, faculty) => {
+      return acc.concat(faculty.majors.map(major => ({
+        _id: major._id,
+        name: major.name,
+        facultyName: faculty.name
+      })));
+    }, []);
+
+    res.status(200).json(majors);
   } catch (error) {
     const { status, message } = handleError(error);
     res.status(status).json({ message });

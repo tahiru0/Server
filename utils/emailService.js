@@ -1,8 +1,33 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import Email from '../models/Email.js'; // Import Email model
+import Config from '../models/Config.js';
 
 dotenv.config();
+
+const getEmailConfig = async () => {
+  const config = await Config.findOne();
+  if (config) {
+    return {
+      service: config.emailService,
+      auth: {
+        user: config.emailUser,
+        pass: config.emailPass
+      },
+      host: config.emailHost,
+      port: config.emailPort,
+      senderName: config.senderName
+    };
+  }
+  return {
+    service: process.env.EMAIL_SERVICE,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    },
+    senderName: process.env.SENDER_NAME
+  };
+};
 
 // Configure nodemailer transporter
 const transporter = nodemailer.createTransport({
@@ -20,54 +45,41 @@ const transporter = nodemailer.createTransport({
 
 // Function to send an email using plain HTML content
 export const sendEmail = async (to, subject, htmlContent, type = 'sent') => {
-    const mailOptions = {
-        from: `"${process.env.SENDER_NAME}" <${process.env.EMAIL_USER}>`,
-        to: to,
-        subject: subject,
-        html: htmlContent,
-    };
+  const emailConfig = await getEmailConfig();
+  
+  const transporterConfig = {
+    service: emailConfig.service,
+    auth: emailConfig.auth
+  };
 
-    try {
-        let info = await transporter.sendMail(mailOptions);
-        console.log('Email sent:', info.response);
+  if (emailConfig.service === 'custom') {
+    transporterConfig.host = emailConfig.host;
+    transporterConfig.port = emailConfig.port;
+    delete transporterConfig.service;
+  }
 
-        // Lưu email vào database với trường type
-        const email = new Email({ to, subject, htmlContent, type });
-        await email.save();
-        return { success: true, message: 'Email sent successfully' };
-    } catch (error) {
-        console.error('Error sending email with primary credentials:', error);
+  const transporter = nodemailer.createTransport(transporterConfig);
 
-        // Cấu hình lại transporter với EMAIL_USER2 và EMAIL_PASS2
-        const transporter2 = nodemailer.createTransport({
-            host: 'smtp.gmail.com',
-            port: 587,
-            secure: false,
-            auth: {
-                user: process.env.EMAIL_USER2,
-                pass: process.env.EMAIL_PASS2,
-            },
-            tls: {
-                ciphers: 'SSLv3'
-            }
-        });
+  const mailOptions = {
+    from: `"${emailConfig.senderName}" <${emailConfig.auth.user}>`,
+    to: to,
+    subject: subject,
+    html: htmlContent,
+  };
 
-        try {
-            let info = await transporter2.sendMail(mailOptions);
-            console.log('Email sent with secondary credentials:', info.response);
+  try {
+    let info = await transporter.sendMail(mailOptions);
+    console.log('Email sent:', info.response);
 
-            // Lưu email vào database với trường type
-            const email = new Email({ to, subject, htmlContent, type });
-            await email.save();
-            return { success: true, message: 'Email sent successfully with secondary credentials' };
-        } catch (error) {
-            console.error('Error sending email with secondary credentials:', error);
-            // Lưu email vào database với trạng thái lỗi
-            const email = new Email({ to, subject, htmlContent, type, status: 'failed', error: error.message });
-            await email.save();
-            return { success: false, message: 'Failed to send email with both primary and secondary credentials', error: error.message };
-        }
-    }
+    const email = new Email({ to, subject, htmlContent, type });
+    await email.save();
+    return { success: true, message: 'Email sent successfully' };
+  } catch (error) {
+    console.error('Error sending email:', error);
+    const email = new Email({ to, subject, htmlContent, type, status: 'failed', error: error.message });
+    await email.save();
+    return { success: false, message: 'Failed to send email', error: error.message };
+  }
 };
 
 // Function to restore a soft-deleted email

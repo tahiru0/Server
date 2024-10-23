@@ -5,10 +5,13 @@ import Company from '../models/Company.js';
 import Student from '../models/Student.js';
 import { handleError } from '../utils/errorHandler.js';
 import { publicLimiter, loginLimiter } from '../utils/rateLimiter.js';
+import { sendEmail } from '../utils/emailService.js';
+import { passwordResetTemplate } from '../utils/emailTemplates.js';
 import useragent from 'useragent';
 import geoip from 'geoip-lite';
 import { generateTokens, saveLoginHistory, prepareLoginResponse } from '../utils/authUtils.js';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import LoginHistory from '../models/LoginHistory.js';
 import Notification from '../models/Notification.js';
 import authenticate from '../middlewares/authenticate.js';
@@ -754,5 +757,119 @@ router.get('/schools', async (req, res) => {
   }
 });
 
-export default router;
+const createAndSendResetToken = async (model, email, entityType) => {
+  const entity = await model.findOne({ 'accounts.email': email });
+  if (!entity) {
+    const error = new Error('Không tìm thấy tài khoản với email này.');
+    error.status = 400;
+    throw error;
+  }
 
+  const account = entity.accounts.find(acc => acc.email === email);
+  if (!account) {
+    const error = new Error('Không tìm thấy tài khoản với email này.');
+    error.status = 400;
+    throw error;
+  }
+
+  const resetToken = account.createPasswordResetToken();
+  await entity.save();
+
+  const resetURL = `${process.env.FRONTEND_URL}/${entityType}/reset-password/${resetToken}`;
+  await sendEmail(
+    email,
+    'Đặt lại mật khẩu của bạn',
+    passwordResetTemplate({
+      accountName: account.name,
+      resetLink: resetURL
+    })
+  );
+
+  return { message: 'Token đặt lại mật khẩu đã được gửi đến email của bạn.' };
+};
+const resetPassword = async (model, token, newPassword) => {
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+  const entity = await model.findOne({
+    'accounts.resetPasswordToken': hashedToken,
+    'accounts.resetPasswordExpires': { $gt: Date.now() }
+  });
+
+  if (!entity) {
+    throw new Error('Token không hợp lệ hoặc đã hết hạn.');
+  }
+
+  const account = entity.accounts.find(acc => acc.resetPasswordToken === hashedToken);
+  if (!account) {
+    throw new Error('Không tìm thấy tài khoản.');
+  }
+
+  account.password = newPassword;
+  account.resetPasswordToken = undefined;
+  account.resetPasswordExpires = undefined;
+
+  await entity.save();
+
+  return { message: 'Mật khẩu đã được đặt lại thành công.' };
+};
+
+router.post('/forgot-password/:entityType', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const { entityType } = req.params;
+    let model;
+
+    switch (entityType) {
+      case 'company':
+        model = Company;
+        break;
+      case 'school':
+        model = School;
+        break;
+      case 'student':
+        model = Student;
+        break;
+      default:
+        return res.status(400).json({ message: 'Loại tài khoản không hợp lệ.' });
+    }
+
+    const result = await createAndSendResetToken(model, email, entityType);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/reset-password/:entityType/:token', async (req, res, next) => {
+  try {
+    const { password } = req.body;
+    const { token, entityType } = req.params;
+    let model;
+
+    switch (entityType) {
+      case 'company':
+        model = Company;
+        break;
+      case 'school':
+        model = School;
+        break;
+      case 'student':
+        model = Student;
+        break;
+      default:
+        return res.status(400).json({ message: 'Loại tài khoản không hợp lệ.' });
+    }
+
+    const result = await resetPassword(model, token, password);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.use((err, req, res, next) => {
+  const { status, message } = handleError(err);
+  res.status(status).json({ message });
+});
+
+export default router;

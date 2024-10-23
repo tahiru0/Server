@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import sanitizeHtml from 'sanitize-html';
 import notificationStream from '../utils/notificationStream.js';
+import softDeletePlugin from '../utils/softDelete.js';
 
 const sanitizeOptions = {
   allowedTags: [],
@@ -31,7 +32,7 @@ const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
     required: [true, 'Loại thông báo không được để trống'],
-    enum: ['task', 'project', 'system', 'account']
+    enum: ['task', 'project', 'system', 'account', 'survey']
   },
   content: {
     type: String,
@@ -67,6 +68,10 @@ const notificationSchema = new mongoose.Schema({
   relatedData: {
     type: mongoose.Schema.Types.Mixed,
     default: {}
+  },
+  relativeLink: {
+    type: String,
+    required: false
   }
 }, { 
   timestamps: true, 
@@ -211,6 +216,8 @@ notificationSchema.statics.insert = async function(notificationData) {
     return null;
   }
 };
+
+notificationSchema.plugin(softDeletePlugin);
 
 const Notification = mongoose.model('Notification', notificationSchema);
 

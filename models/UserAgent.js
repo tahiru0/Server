@@ -30,4 +30,5 @@ userAgentSchema.index({ user: 1, userAgentString: 1 }, { unique: true });
 
 const UserAgent = mongoose.model('UserAgent', userAgentSchema);
 
+
 export default UserAgent;

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import sanitizeHtml from 'sanitize-html';
+import softDeletePlugin from '../utils/softDelete.js';
 
 const sanitizeOptions = {
   allowedTags: [],
@@ -52,6 +53,8 @@ skillSchema.pre('findOneAndUpdate', function(next) {
     }
     next();
 });
+
+skillSchema.plugin(softDeletePlugin);
 
 const Skill = mongoose.model('Skill', skillSchema);
 

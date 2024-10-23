@@ -5,6 +5,8 @@ import sanitizeHtml from 'sanitize-html';
 import crypto from 'crypto';
 import Project from './Project.js';
 import { encodeUrl } from '../utils/urlEncoder.js'; // Import encodeUrl
+import softDeletePlugin from '../utils/softDelete.js';
+
 
 // Thêm các hàm sanitize
 const sanitizeString = (str) => {
@@ -213,7 +215,7 @@ CompanyAccountSchema.set('toJSON', {
 // Thêm getter cho trường avatar
 CompanyAccountSchema.path('avatar').get(function (value) {
     if (!value) return null;
-    return value.startsWith('http') ? value : `http://localhost:5000${value}`;
+    return value.startsWith('http') ? value : `http://localhost:5000${value.startsWith('/') ? '' : '/'}${value}`;
 });
 
 // Đảm bảo rằng các getter được bao gồm khi chuyển đổi sang JSON
@@ -268,11 +270,35 @@ const CompanySchema = new Schema({
     isActive: { type: Boolean, default: false },
     activationToken: { type: String },
     tokenExpiration: { type: Date },
+    industry: {
+        type: String,
+        trim: true
+    },
+    foundedYear: {
+        type: Number,
+        min: 1800,
+        max: new Date().getFullYear()
+    },
+    employeeCount: {
+        type: Number,
+        min: 1
+    },
+    website: {
+        type: String,
+        trim: true,
+        match: [/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/, 'URL không hợp lệ']
+    },
+    socialMedia: {
+        facebook: String,
+        linkedin: String,
+        twitter: String
+    }
 }, { timestamps: true });
 
 CompanySchema.path('logo').get(function (value) {
     if (!value) return null;
-    return value.startsWith('http') ? value : `http://localhost:5000/${value.replace(/^\/+/, '')}`;
+    if (value.startsWith('http')) return value;
+    return `http://localhost:5000${value.startsWith('/') ? '' : '/'}${value}`;
 });
 
 // Thêm middleware để xử lý cập nhật
@@ -457,9 +483,69 @@ CompanySchema.pre('validate', function(next) {
     next();
 });
 
+CompanyAccountSchema.methods.markStudentAttendance = async function(studentId, projectId, date, status) {
+    const Attendance = mongoose.model('Attendance');
+    let attendance = await Attendance.findOne({
+      student: studentId,
+      project: projectId,
+      date: date
+    });
+    
+    if (attendance) {
+      attendance.status = status;
+      attendance.checkedInBy = 'mentor';
+    } else {
+      attendance = new Attendance({
+        student: studentId,
+        project: projectId,
+        date: date,
+        status: status,
+        checkedInBy: 'mentor'
+      });
+    }
+    
+    await attendance.save();
+    return attendance;
+  };
+  
+  CompanyAccountSchema.methods.commentOnDailyReport = async function(studentId, projectId, date, comment) {
+    const Attendance = mongoose.model('Attendance');
+    const attendance = await Attendance.findOne({
+      student: studentId,
+      project: projectId,
+      date: date
+    });
+    
+    if (!attendance) {
+      throw new Error('Không tìm thấy bản ghi điểm danh cho ngày này');
+    }
+    
+    attendance.mentorComment = comment;
+    await attendance.save();
+    return attendance;
+  };
+  
+  CompanyAccountSchema.methods.reviewWeeklyReport = async function(reportId, feedback) {
+    const WeeklyReport = mongoose.model('WeeklyReport');
+    const report = await WeeklyReport.findById(reportId);
+    
+    if (!report) {
+      throw new Error('Không tìm thấy báo cáo tuần');
+    }
+    
+    report.mentorFeedback = feedback;
+    report.status = 'reviewed';
+    report.reviewedAt = new Date();
+    await report.save();
+    return report;
+  };
+
 // Đảm bảo rằng các thuộc tính ảo được bao gồm khi chuyển đổi sang JSON
 CompanySchema.set('toJSON', { getters: true });
 CompanySchema.set('toObject', { getters: true });
+
+CompanySchema.plugin(softDeletePlugin);
+
 // Đảm bảo export model ở cuối file
 const Company = mongoose.model('Company', CompanySchema);
 export default Company;
@@ -538,3 +624,4 @@ export default Company;
  *           type: boolean
  *           description: Trạng thái xóa mềm của công ty
  */
+

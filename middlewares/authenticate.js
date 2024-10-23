@@ -59,7 +59,7 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Token đã hết hạn. Vui lòng đăng nhập lại.' });
+      return res.status(401).json({ message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.' });
     }
     const { status, message } = handleError(error);
     console.error('Error in authenticate middleware:', error);

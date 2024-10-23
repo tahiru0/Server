@@ -132,26 +132,43 @@ router.post('/tasks/:taskId/evaluate', authenticateMentor, async (req, res, next
     }
 
     let taskEvaluation = report.taskEvaluations.find(te => te.task.toString() === taskId);
-    if (!taskEvaluation) {
+    let calculatedRating = rating;
+
+    if (task.taskType === 'multipleChoice') {
+      // Tính điểm tự động cho bài trắc nghiệm
+      const correctAnswers = task.questions.map(q => q.correctAnswer);
+      const studentAnswers = task.studentAnswer;
+      const totalQuestions = correctAnswers.length;
+      const correctCount = correctAnswers.filter((answer, index) => answer === studentAnswers[index]).length;
+      calculatedRating = (correctCount / totalQuestions) * 10;
+    }
+
+    if (taskEvaluation) {
+      // Cập nhật đánh giá hiện có
+      taskEvaluation.rating = calculatedRating;
+      taskEvaluation.comment = comment;
+      taskEvaluation.evaluator = req.user._id;
+      taskEvaluation.evaluatedAt = new Date();
+    } else {
+      // Tạo đánh giá mới
       taskEvaluation = {
         task: taskId,
-        evaluations: []
+        rating: calculatedRating,
+        comment,
+        evaluator: req.user._id,
+        evaluatedAt: new Date()
       };
       report.taskEvaluations.push(taskEvaluation);
     }
 
-    taskEvaluation.evaluations.push({
-      evaluator: req.user._id,
-      rating,
-      comment
-    });
-
     await report.save();
 
     task.status = 'Evaluated';
+    task.rating = calculatedRating;
+    task.comment = comment;
     await task.save();
 
-    res.json({ message: 'Đã đánh giá task thành công' });
+    res.json({ message: 'Đã đánh giá task thành công', rating: calculatedRating });
   } catch (error) {
     next(error);
   }
@@ -308,7 +325,16 @@ router.post('/projects/:projectId/tasks', authenticateMentor, (req, res, next) =
       return next(err);
     }
     try {
-      const { name, description, deadline, assignedTo, taskType, questions, fileRequirements } = req.body;
+      const { name, description, deadline, assignedTo, taskType, questions } = req.body;
+      let fileRequirements;
+
+      if (req.body.fileRequirements) {
+        try {
+          fileRequirements = JSON.parse(req.body.fileRequirements);
+        } catch (error) {
+          return res.status(400).json({ message: 'Định dạng fileRequirements không hợp lệ' });
+        }
+      }
 
       const project = await Project.findOne({ _id: projectId, mentor: req.user._id });
       if (!project) {
@@ -336,7 +362,6 @@ router.post('/projects/:projectId/tasks', authenticateMentor, (req, res, next) =
           maxSize: fileRequirements && fileRequirements.maxSize ? Math.min(Number(fileRequirements.maxSize), 1024) : 1024,
           allowedExtensions: fileRequirements && fileRequirements.allowedExtensions ? fileRequirements.allowedExtensions : []
         } : undefined,
-        lms: req.body.lms || []
       });
 
       if (req.file) {

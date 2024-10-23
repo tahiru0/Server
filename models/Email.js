@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import softDeletePlugin from '../utils/softDelete.js';
 
 const emailSchema = new mongoose.Schema({
   to: {
@@ -65,6 +66,8 @@ emailSchema.statics.getEmailsPaginated = async function(query, options) {
     totalEmails: total
   };
 };
+
+emailSchema.plugin(softDeletePlugin);
 
 const Email = mongoose.model('Email', emailSchema);
 

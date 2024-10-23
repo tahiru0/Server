@@ -15,6 +15,7 @@ import { handleError } from '../utils/errorHandler.js';
 import { handleQuery } from '../utils/queryHelper.js';
 import { encrypt, decrypt } from '../utils/encryption.js';
 import { emailChangeLimiter } from '../utils/rateLimiter.js';
+import { useImageUpload, handleUploadError } from '../utils/upload.js';
 import Major from '../models/Major.js';
 import Skill from '../models/Skill.js';
 import fs from 'fs';
@@ -1298,6 +1299,41 @@ router.put('/account', authenticateCompanyAccount,
       }
   }
 );
+router.put('/account/avatar', authenticateCompanyAccount, useImageUpload('company', 'avatars').single('avatar'), handleUploadError, async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Không có file được tải lên' });
+    }
+
+    const user = req.user;
+    const companyId = req.user.companyId;
+
+    if (!companyId) {
+      return res.status(400).json({ message: 'Không tìm thấy thông tin công ty.' });
+    }
+
+    const avatarPath = req.file.path.replace(/\\/g, '/').replace('public/', '');
+
+    const updatedCompany = await Company.findOneAndUpdate(
+      { _id: companyId, 'accounts._id': user._id },
+      { $set: { 'accounts.$.avatar': avatarPath } },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedCompany) {
+      return res.status(404).json({ message: 'Không tìm thấy tài khoản hoặc công ty.' });
+    }
+
+    const updatedAccount = updatedCompany.accounts.id(user._id);
+
+    res.json({
+      message: 'Cập nhật avatar thành công',
+      avatar: updatedAccount.avatar
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Cập nhật thông tin công ty (chỉ dành cho admin)
 router.put('/company-info', authenticateCompanyAdmin,

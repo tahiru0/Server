@@ -16,7 +16,10 @@ import Notification from '../models/Notification.js';
 import Student from '../models/Student.js';
 import authenticate from '../middlewares/authenticate.js';
 import Admin from '../models/Admin.js';
-import { useImageUpload, handleUploadError } from '../utils/upload.js';
+import { useImageUpload, handleUploadError, useExcelUpload, handleExcelUpload } from '../utils/upload.js';
+import Config from '../models/Config.js';
+import { createBackup, getBackupsList, scheduleBackup, restoreBackup, undoRestore, cancelScheduledBackup, performRestore } from '../utils/backup.js';
+import { generateRandomPassword } from '../utils/passwordGenerator.js';
 
 dotenv.config();
 
@@ -30,41 +33,6 @@ const findAdminById = async (decoded) => {
 // Hàm xác thực admin
 const authenticateAdmin = authenticate(Admin, findAdminById, 'admin');
 
-
-/**
- * @swagger
- * tags:
- *   name: Admin
- *   description: Quản lý các chức năng dành cho admin
- */
-
-/**
- * @swagger
- * /api/admin/companies:
- *   get:
- *     summary: Lấy danh sách công ty
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *         description: Số trang
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *         description: Số lượng kết quả trên mỗi trang
- *     responses:
- *       200:
- *         description: Danh sách công ty
- *       401:
- *         description: Không được phép truy cập
- *       500:
- *         description: Lỗi server
- */
 router.get('/companies', authenticateAdmin, async (req, res, next) => {
   try {
     const { page = 1, limit = 10, search, sort, order } = req.query;
@@ -103,32 +71,6 @@ router.get('/companies', authenticateAdmin, async (req, res, next) => {
     next(error);
   }
 });
-
-/**
- * @swagger
- * /api/admin/companies:
- *   post:
- *     summary: Tạo công ty mới
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/Company'
- *     responses:
- *       201:
- *         description: Công ty đã được tạo
- *       400:
- *         description: Dữ liệu không hợp lệ
- *       401:
- *         description: Không được phép truy cập
- *       500:
- *         description: Lỗi server
- */
-
 router.get('/companies/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const company = await Company.findById(req.params.id).populate('accounts', '-password');
@@ -167,7 +109,7 @@ router.delete('/companies/:id', authenticateAdmin, async (req, res, next) => {
 
 const schoolLogoUpload = useImageUpload('schools', 'logos');
 
-router.put('/schools/:id', authenticateAdmin, schoolLogoUpload.single('logo'), handleUploadError, async (req, res) => {
+router.put('/schools/:id', authenticateAdmin, schoolLogoUpload.single('logo'), handleUploadError, async (req, res, next) => {
   try {
     const schoolId = req.params.id;
     const updateData = req.body;
@@ -193,37 +135,10 @@ router.put('/schools/:id', authenticateAdmin, schoolLogoUpload.single('logo'), h
 
     res.json(updatedSchool);
   } catch (error) {
-    handleError(error, res);
+    next(error);
   }
 });
 
-/**
- * @swagger
- * /api/admin/schools:
- *   get:
- *     summary: Lấy danh sách trường học
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *         description: Số trang
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *         description: Số lượng kết quả trên mỗi trang
- *     responses:
- *       200:
- *         description: Danh sách trường học
- *       401:
- *         description: Không được phép truy cập
- *       500:
- *         description: Lỗi server
- */
 router.get('/schools', authenticateAdmin, async (req, res, next) => {
   try {
     const { page = 1, limit = 10, search, sort, order } = req.query;
@@ -284,40 +199,6 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-/**
- * @swagger
- * /api/admin/schools:
- *   post:
- *     summary: Tạo trường học mới
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *               address:
- *                 type: string
- *               accounts:
- *                 type: string
- *               logo:
- *                 type: string
- *                 format: binary
- *     responses:
- *       201:
- *         description: Trường học đã được tạo
- *       400:
- *         description: Dữ liệu không hợp lệ
- *       401:
- *         description: Không được phép truy cập
- *       500:
- *         description: Lỗi server
- */
 router.post('/schools', authenticateAdmin, upload.single('logo'), async (req, res, next) => {
   try {
     console.log('Received request body:', req.body);
@@ -380,28 +261,6 @@ router.post('/schools', authenticateAdmin, upload.single('logo'), async (req, re
   }
 });
 
-/**
- * @swagger
- * /api/admin/schools/{id}:
- *   get:
- *     summary: Lấy thông tin trường học theo ID
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Thông tin trường học
- *       404:
- *         description: Không tìm thấy trường học
- *       500:
- *         description: Lỗi server
- */
 router.get('/schools/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const school = await School.findById(req.params.id).populate('accounts', '-password');
@@ -414,36 +273,6 @@ router.get('/schools/:id', authenticateAdmin, async (req, res, next) => {
   }
 });
 
-/**
- * @swagger
- * /api/admin/schools/{id}:
- *   put:
- *     summary: Cập nhật thông tin trường học
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/School'
- *     responses:
- *       200:
- *         description: Thông tin trường học đã được cập nhật
- *       400:
- *         description: Dữ liệu không hợp lệ
- *       404:
- *         description: Không tìm thấy trường học
- *       500:
- *         description: Lỗi server
- */
 router.put('/schools/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const updatedSchool = await School.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
@@ -456,28 +285,6 @@ router.put('/schools/:id', authenticateAdmin, async (req, res, next) => {
   }
 });
 
-/**
- * @swagger
- * /api/admin/schools/{id}:
- *   delete:
- *     summary: Xóa trường học
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Trường học đã được xóa
- *       404:
- *         description: Không tìm thấy trường học
- *       500:
- *         description: Lỗi server
- */
 router.delete('/schools/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const deletedSchool = await School.findByIdAndDelete(req.params.id);
@@ -490,41 +297,6 @@ router.delete('/schools/:id', authenticateAdmin, async (req, res, next) => {
   }
 });
 
-/**
- * @swagger
- * /api/admin/send-email:
- *   post:
- *     summary: Gửi email
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               to:
- *                 type: string
- *               subject:
- *                 type: string  
- *               htmlContent:
- *                 type: string
- *               type:
- *                 type: string
- *                 enum: [sent, received, replied]
- *                 default: sent
- *     responses:
- *       200:
- *         description: Email đã được gửi thành công
- *       400:
- *         description: Thiếu thông tin bắt buộc
- *       401:
- *         description: Không được phép truy cập
- *       500:
- *         description: Lỗi server
- */
 router.post('/send-email', authenticateAdmin, async (req, res, next) => {
   const { to, subject, htmlContent, type } = req.body;
 
@@ -537,62 +309,9 @@ router.post('/send-email', authenticateAdmin, async (req, res, next) => {
     res.status(200).json({ message: 'Email được gửi thành công.' });
   } catch (error) {
     console.error('Error sending email:', error);
-    res.status(500).json({ message: 'Lỗi server khi gửi email.' });
+    next(error);
   }
 });
-
-/**
- * @swagger
- * /api/admin/emails:
- *   get:
- *     summary: Lấy danh sách email đã gửi (có phân trang)
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Số trang
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Số lượng email trên mỗi trang
- *       - in: query
- *         name: search
- *         schema:
- *           type: string
- *         description: Tìm kiếm email theo tiêu đề hoặc người nhận
- *       - in: query
- *         name: sort
- *         schema:
- *           type: string
- *           enum: [to, subject, sentAt]
- *           default: sentAt
- *         description: Sắp xếp email theo trường
- *       - in: query
- *         name: order
- *         schema:
- *           type: string
- *           enum: [asc, desc]
- *           default: desc
- *         description: Thứ tự sắp xếp
- *       - in: query
- *         name: showDeleted
- *         schema:
- *           type: boolean
- *           default: false
- *         description: Hiển thị email đã xóa
- *     responses:
- *       200:
- *         description: Danh sách email đã gửi
- *       500:
- *         description: Lỗi server
- */
 router.get('/emails', authenticateAdmin, async (req, res, next) => {
   const { search, sort = 'sentAt', order = 'desc', showDeleted, page = 1, limit = 10 } = req.query;
 
@@ -623,29 +342,6 @@ router.get('/emails', authenticateAdmin, async (req, res, next) => {
     next(error);
   }
 });
-/**
- * @swagger
- * /api/admin/emails/restore/{id}:
- *   post:
- *     summary: Khôi phục email đã xóa mềm
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: string
- *         required: true
- *         description: ID của email cần khôi phục
- *     responses:
- *       200:
- *         description: Email đã được khôi phục
- *       404:
- *         description: Không tìm thấy email
- *       500:
- *         description: Lỗi server
- */
 router.post('/emails/restore/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const email = await restoreEmail(req.params.id);
@@ -658,29 +354,6 @@ router.post('/emails/restore/:id', authenticateAdmin, async (req, res, next) => 
   }
 });
 
-/**
- * @swagger
- * /api/admin/emails/{id}:
- *   delete:
- *     summary: Xóa mềm email
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: string
- *         required: true
- *         description: ID của email cần xóa
- *     responses:
- *       200:
- *         description: Email đã được xóa mềm
- *       404:
- *         description: Không tìm thấy email
- *       500:
- *         description: Lỗi server
- */
 router.delete('/emails/:id', authenticateAdmin, async (req, res, next) => {
   try {
     const email = await Email.findById(req.params.id);
@@ -694,20 +367,6 @@ router.delete('/emails/:id', authenticateAdmin, async (req, res, next) => {
     next(error);
   }
 });
-/**
- * @swagger
- * /api/admin/email-templates:
- *   get:
- *     summary: Lấy danh sách email template
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     responses:
- *       200:
- *         description: Danh sách email template
- *       500:
- *         description: Lỗi server
- */
 router.get('/email-templates', authenticateAdmin, async (req, res, next) => {
   try {
     const templates = await EmailTemplate.find().sort({ createdAt: -1 });
@@ -717,48 +376,7 @@ router.get('/email-templates', authenticateAdmin, async (req, res, next) => {
   }
 });
 
-/**
- * @swagger
- * /api/admin/send-fake-notification:
- *   post:
- *     summary: Gửi thông báo giả cho các đối tượng được chọn
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - content
- *               - type
- *               - recipients
- *             properties:
- *               content:
- *                 type: string
- *                 description: Nội dung của thông báo
- *               type:
- *                 type: string
- *                 description: Loại thông báo
- *               recipients:
- *                 type: array
- *                 items:
- *                   type: string
- *                   enum: [students, companies, schools]
- *                 description: Danh sách đối tượng nhận thông báo
- *     responses:
- *       200:
- *         description: Thông báo đã được gửi thành công
- *       400:
- *         description: Dữ liệu đầu vào không hợp lệ
- *       401:
- *         description: Không có quyền truy cập
- *       500:
- *         description: Lỗi server
- */
-router.post('/send-fake-notification', authenticateAdmin, async (req, res) => {
+router.post('/send-fake-notification', authenticateAdmin, async (req, res, next) => {
   try {
     const { content, type, recipients } = req.body;
 
@@ -819,49 +437,10 @@ router.post('/send-fake-notification', authenticateAdmin, async (req, res) => {
 
     res.json({ message: 'Đã gửi thông báo giả cho các đối tượng được chọn', notificationsSent: notifications.length });
   } catch (error) {
-    console.error('Lỗi khi gửi thông báo giả:', error);
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
-
-/**
- * @swagger
- * /api/admin/dashboard:
- *   get:
- *     summary: Lấy dữ liệu dashboard cho admin
- *     tags: [Admin]
- *     security:
- *       - adminBearerAuth: []
- *     parameters:
- *       - in: query
- *         name: startDate
- *         required: true
- *         schema:
- *           type: string
- *           format: date
- *         description: Ngày bắt đầu cho dữ liệu dashboard
- *       - in: query
- *         name: endDate
- *         required: true
- *         schema:
- *           type: string
- *           format: date
- *         description: Ngày kết thúc cho dữ liệu dashboard
- *     responses:
- *       200:
- *         description: Dữ liệu dashboard thành công
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/AdminDashboardData'
- *       400:
- *         description: Thiếu ngày bắt đầu hoặc kết thúc
- *       401:
- *         description: Không được phép truy cập
- *       500:
- *         description: Lỗi server
- */
-router.get('/dashboard', authenticateAdmin, async (req, res) => {
+router.get('/dashboard', authenticateAdmin, async (req, res, next) => {
   try {
     const { startDate, endDate, timeUnit } = req.query;
     if (!startDate || !endDate) {
@@ -870,12 +449,434 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
     const dashboardData = await getAdminDashboardData(startDate, endDate, timeUnit);
     res.json(dashboardData);
   } catch (error) {
-    res.status(500).json({ message: 'Đã xảy ra lỗi khi lấy dữ liệu dashboard', error: error.message });
+    next(error);
+  }
+});
+
+// Lấy cấu hình email hiện tại
+router.get('/email-config', authenticateAdmin, async (req, res, next) => {
+  try {
+    const config = await Config.findOne();
+    res.json(config || {});
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Cập nhật cấu hình email
+router.post('/email-config', authenticateAdmin, async (req, res, next) => {
+  try {
+    const { emailService, emailUser, emailPass, emailHost, emailPort, senderName } = req.body;
+    let config = await Config.findOne();
+    
+    if (config) {
+      config.emailService = emailService;
+      config.emailUser = emailUser;
+      config.emailPass = emailPass;
+      config.emailHost = emailHost;
+      config.emailPort = emailPort;
+      config.senderName = senderName;
+    } else {
+      config = new Config({
+        emailService,
+        emailUser,
+        emailPass,
+        emailHost,
+        emailPort,
+        senderName
+      });
+    }
+
+    await config.save();
+    res.json({ message: 'Cấu hình email đã được cập nhật', config });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const upload1 = useExcelUpload('uploads');
+
+router.post('/upload/students', authenticateAdmin, upload1.single('file'), async (req, res, next) => {
+  try {
+    const { schoolId } = req.body;
+    if (!schoolId) {
+      return res.status(400).json({ message: 'ID trường học là bắt buộc' });
+    }
+
+    const defaultFieldMapping = {
+      'name': 'Tên sinh viên',
+      'email': 'Email',
+      'studentId': 'Mã số sinh viên',
+      'major': 'Ngành học',
+      'dateOfBirth': 'Ngày sinh',
+      'gender': 'Giới tính',
+      'phoneNumber': 'Số điện thoại',
+      'address': 'Địa chỉ',
+      'socialMedia.facebook': 'Facebook',
+      'socialMedia.linkedin': 'LinkedIn',
+      'socialMedia.github': 'GitHub',
+      'avatar': 'Avatar',
+      'interests': 'Sở thích',
+      'achievements': 'Thành tích'
+    };
+    const customMapping = req.body.mapping ? JSON.parse(req.body.mapping) : null;
+    const fieldMapping = customMapping || defaultFieldMapping;
+
+    const School = mongoose.model('School');
+    const school = await School.findById(schoolId);
+
+    const result = await handleExcelUpload(req.file, Student, fieldMapping, schoolId);
+    
+    const updatedStudents = await Promise.all(result.data.map(async (student) => {
+      const password = await student.generateDefaultPassword();
+      student.password = password;
+      await student.save();
+      return {
+        name: student.name,
+        email: student.email,
+        studentId: student.studentId,
+        password: password,
+        schoolName: school ? school.name : 'Unknown School'
+      };
+    }));
+
+    res.json({
+      message: `Đã xử lý ${result.totalRecords} bản ghi. ${result.successCount} thành công, ${result.failCount} thất bại.`,
+      students: updatedStudents,
+      schoolName: school ? school.name : 'Unknown School',
+      errors: result.errors
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/upload/schools', authenticateAdmin, upload1.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Không có file được tải lên' });
+    }
+
+    const defaultFieldMapping = {
+      'name': 'Tên trường',
+      'address': 'Địa chỉ',
+      'website': 'Website',
+      'foundedYear': 'Năm thành lập',
+      'socialMedia.facebook': 'Facebook',
+      'socialMedia.linkedin': 'LinkedIn',
+      'socialMedia.twitter': 'Twitter',
+      'logo': 'Logo',
+      'accreditations': 'Chứng nhận',
+      'campusLocations': 'Địa điểm cơ sở',
+      'accounts.0.email': 'Email đăng nhập'
+    };
+    const customMapping = req.body.mapping ? JSON.parse(req.body.mapping) : null;
+    const fieldMapping = customMapping || defaultFieldMapping;
+    
+    const result = await handleExcelUpload(req.file, School, fieldMapping);
+    
+    const updatedSchools = await Promise.all(result.data.map(async (school) => {
+      try {
+        const password = generateRandomPassword();
+        if (school.accounts && school.accounts.length > 0) {
+          school.accounts[0].password = password;
+          school.accounts[0].role = 'admin';
+        }
+        await school.save();
+        return {
+          name: school.name,
+          email: school.accounts[0].email,
+          password: password
+        };
+      } catch (error) {
+        console.error(`Lỗi khi xử lý trường ${school.name}:`, error);
+        return null;
+      }
+    }));
+
+    const successfulSchools = updatedSchools.filter(school => school !== null);
+
+    res.json({
+      message: `Đã xử lý ${result.totalRecords} bản ghi. ${result.successCount} thành công, ${result.failCount} thất bại.`,
+      schools: successfulSchools,
+      errors: result.errors
+    });
+  } catch (error) {
+    console.error('Lỗi khi tải lên danh sách trường học:', error);
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi xử lý tệp Excel', error: error.message });
+  }
+});
+
+router.post('/upload/companies', authenticateAdmin, upload1.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Không có file được tải lên' });
+    }
+
+    const defaultFieldMapping = {
+      'name': 'Tên công ty',
+      'address': 'Địa chỉ',
+      'email': 'Email',
+      'description': 'Mô tả',
+      'website': 'Website',
+      'industry': 'Ngành công nghiệp',
+      'foundedYear': 'Năm thành lập',
+      'employeeCount': 'Số lượng nhân viên',
+      'socialMedia.facebook': 'Facebook',
+      'socialMedia.linkedin': 'LinkedIn',
+      'socialMedia.twitter': 'Twitter',
+      'logo': 'Logo',
+      'accounts.0.email': 'Email đăng nhập'
+    };
+    const customMapping = req.body.mapping ? JSON.parse(req.body.mapping) : null;
+    const fieldMapping = customMapping || defaultFieldMapping;
+    
+    const result = await handleExcelUpload(req.file, Company, fieldMapping);
+    
+    const updatedCompanies = await Promise.all(result.data.map(async (company) => {
+      try {
+        const password = generateRandomPassword();
+        if (company.accounts && company.accounts.length > 0) {
+          company.accounts[0].password = password;
+          company.accounts[0].role = 'admin';
+        }
+        await company.save();
+        return {
+          name: company.name,
+          email: company.accounts[0].email,
+          password: password
+        };
+      } catch (error) {
+        console.error(`Lỗi khi xử lý công ty ${company.name}:`, error);
+        return null;
+      }
+    }));
+
+    const successfulCompanies = updatedCompanies.filter(company => company !== null);
+
+    res.json({
+      message: `Đã xử lý ${result.totalRecords} bản ghi. ${result.successCount} thành công, ${result.failCount} thất bại.`,
+      companies: successfulCompanies,
+      errors: result.errors
+    });
+  } catch (error) {
+    console.error('Lỗi khi tải lên danh sách công ty:', error);
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi xử lý tệp Excel', error: error.message });
+  }
+});
+
+router.post('/upload/projects', authenticateAdmin, upload1.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Không có file được tải lên' });
+    }
+
+    const defaultFieldMapping = {
+      'title': 'Tiêu đề',
+      'description': 'Mô tả',
+      'company': 'Công ty',
+      'status': 'Trạng thái',
+      'objectives': 'Mục tiêu',
+      'startDate': 'Ngày bắt đầu',
+      'endDate': 'Ngày kết thúc'
+    };
+    const customMapping = req.body.mapping ? JSON.parse(req.body.mapping) : null;
+    const fieldMapping = customMapping || defaultFieldMapping;
+
+    const result = await handleExcelUpload(req.file, Project, fieldMapping);
+
+    res.json({
+      message: `Đã xử lý ${result.totalRecords} bản ghi. ${result.successCount} thành công, ${result.failCount} thất bại.`,
+      projects: result.data,
+      errors: result.errors
+    });
+  } catch (error) {
+    console.error('Lỗi khi tải lên danh sách dự án:', error);
+    res.status(500).json({ message: 'Đã xảy ra lỗi khi xử lý tệp Excel', error: error.message });
+  }
+});
+
+router.post('/backup', authenticateAdmin, async (req, res, next) => {
+  try {
+    const { backupName } = req.body;
+    const backupPath = await createBackup(backupName);
+    res.json({ message: 'Sao lưu thành công', backupPath });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/backups', authenticateAdmin, (req, res, next) => {
+  try {
+    const backups = getBackupsList();
+    res.json(backups);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/backup-config', authenticateAdmin, async (req, res, next) => {
+  try {
+    const { backupDay, backupTime, retentionPeriod, password, defaultBackupName, schedule } = req.body;
+    const [backupHour, backupMinute] = backupTime.split('T')[1].split(':');
+    const config = await Config.findOneAndUpdate(
+      {},
+      { 
+        $set: { 
+          backupConfig: { 
+            schedule: {
+              frequency: 'weekly',
+              dayOfWeek: parseInt(backupDay),
+              time: `${backupHour}:${backupMinute}`
+            },
+            password, 
+            retentionPeriod,
+            defaultBackupName
+          } 
+        } 
+      },
+      { new: true, upsert: true }
+    );
+    await scheduleBackup();
+    res.json({ message: 'Cấu hình sao lưu đã được cập nhật', config: config.backupConfig });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/maintenance', authenticateAdmin, async (req, res) => {
+  try {
+    const { isActive, message } = req.body;
+    const config = await Config.findOneAndUpdate(
+      {},
+      { $set: { 'maintenanceMode.isActive': isActive, 'maintenanceMode.message': message } },
+      { new: true, upsert: true }
+    );
+    res.json({ message: `Chế độ bảo trì đã được ${isActive ? 'bật' : 'tắt'}`, config: config.maintenanceMode });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi khi cập nhật chế độ bảo trì', error: error.message });
+  }
+});
+router.get('/maintenance', authenticateAdmin, async (req, res) => {
+  try {
+    const config = await Config.findOne({}, 'maintenanceMode');
+    if (!config || !config.maintenanceMode) {
+      return res.json({ isActive: false, message: '' });
+    }
+    res.json(config.maintenanceMode);
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi khi lấy trạng thái bảo trì', error: error.message });
+  }
+});
+
+router.post('/restore-backup', authenticateAdmin, async (req, res) => {
+  try {
+    const config = await Config.findOne();
+    if (!config || !config.maintenanceMode.isActive) {
+      return res.status(403).json({ message: 'Chỉ có thể khôi phục sao lưu khi đang trong chế độ bảo trì' });
+    }
+
+    const { backupFileName, password } = req.body;
+    if (!backupFileName || !password) {
+      return res.status(400).json({ message: 'Tên file sao lưu và mật khẩu là bắt buộc' });
+    }
+
+    const result = await performRestore(backupFileName, password);
+    
+    // Lưu thông tin về bản sao lưu hiện tại vào cơ sở dữ liệu
+    await Config.findOneAndUpdate({}, {
+      $set: {
+        lastRestore: {
+          backupFileName,
+          password,
+          timestamp: new Date()
+        }
+      }
+    });
+
+    res.json({ ...result, canUndo: true, undoExpiresIn: 30 }); // 30 giây để hoàn tác
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi khi khôi phục sao lưu', error: error.message });
+  }
+});
+
+router.post('/undo-restore', authenticateAdmin, async (req, res) => {
+  try {
+    const config = await Config.findOne();
+    if (!config || !config.maintenanceMode.isActive) {
+      return res.status(403).json({ message: 'Chỉ có thể hoàn tác khôi phục khi đang trong chế độ bảo trì' });
+    }
+
+    if (!config.lastRestore) {
+      return res.status(400).json({ message: 'Không có thông tin về lần khôi phục gần nhất' });
+    }
+
+    const now = new Date();
+    if (now - config.lastRestore.timestamp > 30000) { // 30 giây
+      return res.status(400).json({ message: 'Đã hết thời gian cho phép hoàn tác' });
+    }
+
+    const result = await undoRestore(config.lastRestore.backupFileName, config.lastRestore.password);
+    
+    // Xóa thông tin về lần khôi phục gần nhất
+    await Config.findOneAndUpdate({}, { $unset: { lastRestore: "" } });
+
+    res.json({ ...result, message: 'Hoàn tác khôi phục thành công' });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi khi hoàn tác khôi phục', error: error.message });
+  }
+});
+
+router.get('/backup-config', authenticateAdmin, async (req, res, next) => {
+  try {
+    const config = await Config.findOne({}, 'backupConfig');
+    if (!config || !config.backupConfig) {
+      return res.status(404).json({ message: 'Không tìm thấy cấu hình sao lưu' });
+    }
+    res.json({ config: config.backupConfig });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/cancel-backup', authenticateAdmin, async (req, res, next) => {
+  try {
+    const result = cancelScheduledBackup();
+    if (result) {
+      const config = await Config.findOneAndUpdate(
+        {},
+        { $unset: { 'backupConfig.schedule': "" } },
+        { new: true }
+      );
+      res.json({ message: 'Đã hủy lịch sao lưu tự động', config: config.backupConfig });
+    } else {
+      res.status(400).json({ message: 'Không có lịch sao lưu tự động nào đang hoạt động' });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/analyze-backup', authenticateAdmin, async (req, res) => {
+  try {
+    const { backupFileName, password } = req.body;
+    if (!backupFileName || !password) {
+      return res.status(400).json({ message: 'Tên file sao lưu và mật khẩu là bắt buộc' });
+    }
+
+    const analysis = await restoreBackup(backupFileName, password);
+    res.json(analysis);
+  } catch (error) {
+    console.error('Lỗi chi tiết:', error);
+    res.status(500).json({ 
+      message: 'Lỗi khi phân tích sao lưu', 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
 router.use((err, req, res, next) => {
-  console.error('Lỗi trong admin router:', err);
   const { status, message } = handleError(err);
   res.status(status).json({ error: message });
 });
