@@ -52,5 +52,35 @@ majorSchema.pre('findOneAndUpdate', function(next) {
 
 majorSchema.plugin(softDeletePlugin);
 
+// Thêm phương thức tĩnh để tìm kiếm major
+majorSchema.statics.findByFlexibleName = async function(name) {
+  const normalizedName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  // Tạo regex cho viết tắt
+  const abbreviationRegex = name.split(/\s+/).map(word => `(?=.*\\b${word[0]})`).join('');
+  
+  return this.find({
+    $or: [
+      { name: { $regex: new RegExp(name, 'i') } },
+      { name: { $regex: new RegExp(normalizedName, 'i') } },
+      { name: { $regex: new RegExp(abbreviationRegex, 'i') } },
+      { 
+        $expr: {
+          $regexMatch: {
+            input: {
+              $reduce: {
+                input: { $split: ["$name", " "] },
+                initialValue: "",
+                in: { $concat: ["$$value", { $substrCP: ["$$this", 0, 1] }] }
+              }
+            },
+            regex: new RegExp(normalizedName, 'i')
+          }
+        }
+      }
+    ]
+  });
+};
+
 const Major = mongoose.model('Major', majorSchema);
 export default Major;

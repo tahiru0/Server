@@ -14,7 +14,7 @@ export const generateTokens = (user, model, ipAddress, additionalInfo = {}) => {
     const accessToken = jwt.sign(
         accessTokenPayload,
         process.env.JWT_SECRET,
-        { expiresIn: '1h' } // Tăng lên 1 giờ hoặc nhiều hơn
+        { expiresIn: '1h' }
     );
 
     const refreshTokenPayload = {
@@ -37,46 +37,58 @@ const hashIpAddress = (ipAddress) => {
     return crypto.createHash('sha256').update(ipAddress).digest('hex');
 };
 
-export const saveLoginHistory = async (req, user, userModel, isSuccess, failureReason = null) => {
-    const ipAddress = req.ip === '::1' ? '127.0.0.1' : req.ip;
-    const userAgent = req.headers['user-agent'];
-    
-    let location = null;
-    if (ipAddress !== '127.0.0.1') {
-        const geo = geoip.lookup(ipAddress);
-        if (geo) {
-            location = {
-                country: geo.country,
-                city: geo.city,
-                latitude: geo.ll[0],
-                longitude: geo.ll[1]
-            };
-        }
-    }
-
-    const loginHistory = new LoginHistory({
-        user: user ? user._id : null,
-        userModel,
-        ipAddress,
-        userAgent,
-        loginStatus: isSuccess ? 'success' : 'failed',
-        failureReason,
-        location
-    });
-
-    await loginHistory.save();
+const isFirstLogin = async (userId, userModel) => {
+  const loginCount = await LoginHistory.countDocuments({ user: userId, userModel, loginStatus: 'success' });
+  return loginCount === 0;
 };
 
-export const prepareLoginResponse = (user, accessToken, refreshToken) => {
-    return {
-        message: "Đăng nhập thành công",
-        user: {
-            id: user._id,
-            email: user.email,
-            role: user.role,
-            name: user.name,
-        },
-        accessToken,
-        refreshToken
-    };
+export const saveLoginHistory = async (req, user, userModel, isSuccess, failureReason = null) => {
+  const ipAddress = req.ip === '::1' ? '127.0.0.1' : req.ip;
+  const userAgent = req.headers['user-agent'];
+  
+  let location = null;
+  if (ipAddress !== '127.0.0.1') {
+    const geo = geoip.lookup(ipAddress);
+    if (geo) {
+      location = {
+        country: geo.country,
+        city: geo.city,
+        latitude: geo.ll[0],
+        longitude: geo.ll[1]
+      };
+    }
+  }
+
+  const isFirstLoginAttempt = user ? await isFirstLogin(user._id, userModel) : false;
+
+  const loginHistory = new LoginHistory({
+    user: user ? user._id : null,
+    userModel,
+    ipAddress,
+    userAgent,
+    loginStatus: isSuccess ? 'success' : 'failed',
+    failureReason,
+    location,
+    isFirstLogin: isFirstLoginAttempt
+  });
+
+  await loginHistory.save();
+  return isFirstLoginAttempt;
+};
+
+export const prepareLoginResponse = async (user, userModel, accessToken, refreshToken, req) => {
+  const isFirstLoginAttempt = await isFirstLogin(user._id, userModel);
+  
+  return {
+    message: "Đăng nhập thành công",
+    user: {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+    },
+    accessToken,
+    refreshToken,
+    isFirstLogin: isFirstLoginAttempt
+  };
 };

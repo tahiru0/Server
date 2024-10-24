@@ -18,23 +18,39 @@ import authenticate from '../middlewares/authenticate.js';
 import School from '../models/School.js';
 import notificationMessages from '../utils/notificationMessages.js'; // Import notificationMessages
 import axios from 'axios';
+import UserDevice from '../models/UserDevice.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
 const isNewDevice = async (user, userModel, ipAddress, userAgent) => {
   const deviceInfo = parseUserAgent(userAgent);
-  const lastLogin = await LoginHistory.findOne({ user: user._id, userModel: userModel })
-    .sort({ loginTime: -1 })
-    .exec();
+  
+  const existingDevice = await UserDevice.findOne({
+    userId: user._id,
+    userModel: userModel,
+    'deviceInfo.os': deviceInfo.os,
+    'deviceInfo.browser': deviceInfo.browser,
+    'deviceInfo.device': deviceInfo.device
+  });
 
-  if (!lastLogin) {
+  if (!existingDevice) {
+    const newDevice = new UserDevice({
+      userId: user._id,
+      userModel: userModel,
+      deviceInfo: deviceInfo,
+      ipAddress: ipAddress
+    });
+    await newDevice.save();
+
     return true;
   }
 
-  return (
-    lastLogin.ipAddress !== ipAddress ||
-    lastLogin.deviceInfo.os !== deviceInfo.os
-  );
+  // Cập nhật thời gian sử dụng cuối cùng
+  existingDevice.lastUsed = new Date();
+  await existingDevice.save();
+
+  return false;
 };
 
 /**
@@ -127,10 +143,8 @@ const loginAdmin = async (req, res) => {
 
     await saveLoginHistory(req, admin, 'Admin', true);
 
-    const isNewDev = await isNewDevice(admin, 'Admin', ipAddress, req.headers['user-agent']);
-    if (isNewDev) {
-      admin.lastNotifiedDevice = new Date();
-      await admin.save();
+    if (await isNewDevice(admin, 'Admin', ipAddress, req.headers['user-agent'])) {
+      // Gửi thông báo về thiết bị mới
       await Notification.insert({
         recipient: admin._id,
         recipientModel: 'Admin',
@@ -183,6 +197,7 @@ const loginAdmin = async (req, res) => {
 const loginCompany = async (req, res) => {
   const { companyId, email, password } = req.body;
   let loginSuccess = false;
+  let account = null;
   try {
     if (!companyId || companyId.trim() === '') {
       return res.status(400).json({ message: 'ID công ty không hợp lệ.' });
@@ -198,14 +213,14 @@ const loginCompany = async (req, res) => {
 
     const company = await Company.findById(companyId);
     if (!company) {
-      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
+      return res.status(400).json({ message: 'Không tìm thấy công ty với ID này.' });
     }
 
     if (company.isDeleted || !company.isActive) {
       return res.status(400).json({ message: 'Tài khoản công ty đang được xử lý, vui lòng thử lại sau.' });
     }
 
-    const account = company.accounts.find(acc => acc.email === email && !acc.isDeleted);
+    account = company.accounts.find(acc => acc.email === email && !acc.isDeleted);
     if (!account) {
       return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
@@ -227,10 +242,7 @@ const loginCompany = async (req, res) => {
 
     await saveLoginHistory(req, account, 'CompanyAccount', true);
 
-    const isNewDev = await isNewDevice(account, 'CompanyAccount', ipAddress, req.headers['user-agent']);
-    if (isNewDev) {
-      account.lastNotifiedDevice = new Date();
-      await company.save();
+    if (await isNewDevice(account, 'CompanyAccount', ipAddress, req.headers['user-agent'])) {
       await Notification.insert({
         recipient: account._id,
         recipientModel: 'CompanyAccount',
@@ -241,16 +253,28 @@ const loginCompany = async (req, res) => {
     }
 
     loginSuccess = true;
-    return res.status(200).json(prepareLoginResponse(account, accessToken, refreshToken));
+    return res.json({
+      message: 'Đăng nhập thành công',
+      user: {
+        _id: account._id,
+        email: account.email,
+        role: account.role,
+        companyId: company._id,
+        companyName: company.name
+      },
+      accessToken,
+      refreshToken
+    });
   } catch (error) {
+    console.error('Lỗi trong quá trình đăng nhập công ty:', error);
     if (!res.headersSent) {
-      await saveLoginHistory(req, null, 'CompanyAccount', false, error.message);
+      await saveLoginHistory(req, account, 'CompanyAccount', false, error.message);
       const { status, message } = handleError(error);
       return res.status(status).json({ message });
     }
   } finally {
     if (!loginSuccess && !res.headersSent) {
-      await saveLoginHistory(req, null, 'CompanyAccount', false, 'Đăng nhập thất bại');
+      await saveLoginHistory(req, account, 'CompanyAccount', false, 'Đăng nhập thất bại');
       return res.status(500).json({ message: 'Đã xảy ra lỗi trong quá trình đăng nhập.' });
     }
   }
@@ -282,78 +306,29 @@ const loginCompany = async (req, res) => {
  *         description: Lỗi dữ liệu đầu vào
  */
 const loginSchool = async (req, res) => {
-  const { schoolId, email, password } = req.body;
   let loginSuccess = false;
+  let user = null;
   try {
-    if (!schoolId || schoolId.trim() === '') {
-      return res.status(400).json({ message: 'ID trường học không hợp lệ.' });
+    const { schoolId, email, password } = req.body;
+
+    if (!schoolId || !email || !password) {
+      throw new Error('Vui lòng cung cấp đầy đủ thông tin đăng nhập.');
     }
 
-    if (!email || email.trim() === '') {
-      return res.status(400).json({ message: 'Email không được để trống.' });
-    }
-
-    if (!password || password.trim() === '') {
-      return res.status(400).json({ message: 'Mật khẩu không được để trống.' });
-    }
-
-    const school = await School.findById(schoolId);
-    if (!school) {
-      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
-    }
-
-    if (school.isDeleted || !school.isActive) {
-      return res.status(400).json({ message: 'Tài khoản trường học đang được xử lý, vui lòng thử lại sau.' });
-    }
-
-    const account = school.accounts.find(acc => acc.email === email && !acc.isDeleted);
-    if (!account) {
-      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
-    }
-
-    if (!account.isActive) {
-      return res.status(400).json({ message: 'Tài khoản đã bị vô hiệu hóa, hãy liên hệ cho bộ phận hỗ trợ.' });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, account.passwordHash);
-    if (!isPasswordValid) {
-      return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
-    }
-
-    const ipAddress = req.ip;
-    const { accessToken, refreshToken } = generateTokens(account, 'SchoolAccount', ipAddress, { schoolId: school._id });
-
-    account.refreshToken = refreshToken;
-    await school.save();
-
-    await saveLoginHistory(req, account, 'SchoolAccount', true);
-
-    const isNewDev = await isNewDevice(account, 'SchoolAccount', ipAddress, req.headers['user-agent']);
-    if (isNewDev) {
-      account.lastNotifiedDevice = new Date();
-      await school.save();
-      await Notification.insert({
-        recipient: account._id,
-        recipientModel: 'SchoolAccount',
-        recipientRole: account.role.name,
-        type: 'account',
-        content: notificationMessages.account.newDeviceLogin()
-      });
-    }
-
+    user = await School.login(schoolId, email, password);
     loginSuccess = true;
-    return res.json(prepareLoginResponse(account, accessToken, refreshToken));
+
+    const { accessToken, refreshToken } = generateTokens(user, 'SchoolAccount', req.ip, { schoolId: user.schoolId });
+
+    const loginResponse = await prepareLoginResponse(user, 'SchoolAccount', accessToken, refreshToken, req);
+
+    res.status(200).json(loginResponse);
   } catch (error) {
-    if (!res.headersSent) {
-      await saveLoginHistory(req, null, 'SchoolAccount', false, error.message);
-      const { status, message } = handleError(error);
-      return res.status(status).json({ message });
-    }
+    console.error('Lỗi trong quá trình đăng nhập trường học:', error);
+    const errorResponse = handleError(error);
+    res.status(errorResponse.status).json({ message: errorResponse.message });
   } finally {
-    if (!loginSuccess && !res.headersSent) {
-      await saveLoginHistory(req, null, 'SchoolAccount', false, 'Đăng nhập thất bại');
-      return res.status(500).json({ message: 'Đã xảy ra lỗi trong quá trình đăng nhập.' });
-    }
+    await saveLoginHistory(req, user, 'SchoolAccount', loginSuccess, loginSuccess ? null : 'Thông tin đăng nhập không chính xác');
   }
 };
 
@@ -404,7 +379,7 @@ const loginStudent = async (req, res) => {
     }
 
     const student = await Student.findBySchoolAndStudentId(schoolId, studentId);
-    console.log(`Result of finding student: ${student}`);
+    console.log(`Result of finding student: ${JSON.stringify(student)}`);
 
     if (!student) {
       return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });
@@ -427,8 +402,7 @@ const loginStudent = async (req, res) => {
 
     await saveLoginHistory(req, student, 'Student', true);
 
-    const isNewDev = await isNewDevice(student, 'Student', ipAddress, req.headers['user-agent']);
-    if (isNewDev) {
+    if (await isNewDevice(student, 'Student', ipAddress, req.headers['user-agent'])) {
       await Notification.insert({
         recipient: student._id,
         recipientModel: 'Student',
@@ -438,8 +412,9 @@ const loginStudent = async (req, res) => {
     }
 
     loginSuccess = true;
-    return res.json(prepareLoginResponse(student, accessToken, refreshToken));
+    return res.json(await prepareLoginResponse(student, 'Student', accessToken, refreshToken, req));
   } catch (error) {
+    console.error('Lỗi trong quá trình đăng nhập:', error);
     if (!res.headersSent) {
       await saveLoginHistory(req, null, 'Student', false, error.message);
       const { status, message } = handleError(error);

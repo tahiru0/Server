@@ -73,7 +73,7 @@ taskSchema.methods.updateStatusIfOverdue = function () {
 };
 
 taskSchema.methods.canSubmit = function () {
-  return this.status === 'Assigned' && new Date() <= this.deadline;
+  return this.status === 'Assigned' || this.status === 'Overdue';
 };
 
 taskSchema.pre('save', async function (next) {
@@ -81,7 +81,6 @@ taskSchema.pre('save', async function (next) {
   this.updateStatusIfOverdue();
   
   if (this.isNew) {
-    // Tạo thông báo cho task mới
     const project = await mongoose.model('Project').findById(this.project);
     if (project) {
       await Notification.insert({
@@ -92,7 +91,6 @@ taskSchema.pre('save', async function (next) {
         relatedId: this._id
       });
 
-      // Tạo thông báo cho mentor
       await Notification.insert({
         recipient: project.mentor,
         recipientModel: 'CompanyAccount',
@@ -102,73 +100,40 @@ taskSchema.pre('save', async function (next) {
         relatedId: this._id
       });
     }
-  } else if (this.isModified('status') || this.isModified('deadline')) {
-    // Tạo thông báo khi cập nhật trạng thái hoặc deadline
-    await Notification.insert({
-      recipient: this.assignedTo,
-      recipientModel: 'Student',
-      type: 'task',
-      content: `Task "${this.name}" đã được cập nhật`,
-      relatedId: this._id
-    });
-
-    // Tạo thông báo cho mentor
-    const project = await mongoose.model('Project').findById(this.project);
-    if (project) {
-      await Notification.insert({
-        recipient: project.mentor,
-        recipientModel: 'CompanyAccount',
-        recipientRole: 'mentor',
-        type: 'task',
-        content: `Task "${this.name}" trong dự án "${project.title}" đã được cập nhật`,
-        relatedId: this._id
-      });
-    }
-
-    // Tạo thông báo khi task quá hạn
-    if (!wasOverdue && this.status === 'Overdue') {
+  } else if (this.isModified('status')) {
+    if (this.status === 'Submitted') {
+      this.submittedAt = new Date();
       await Notification.insert({
         recipient: this.assignedTo,
         recipientModel: 'Student',
         type: 'task',
-        content: notificationMessages.task.overdue(this.name),
+        content: notificationMessages.task.submitted(this.name),
+        relatedId: this._id
+      });
+
+      const project = await mongoose.model('Project').findById(this.project);
+      if (project) {
+        await Notification.insert({
+          recipient: project.mentor,
+          recipientModel: 'CompanyAccount',
+          recipientRole: 'mentor',
+          type: 'task',
+          content: notificationMessages.task.statusUpdated(this.name, 'Submitted'),
+          relatedId: this._id
+        });
+      }
+    } else if (this.status === 'Completed') {
+      this.completedAt = new Date();
+      await Notification.insert({
+        recipient: this.assignedTo,
+        recipientModel: 'Student',
+        type: 'task',
+        content: notificationMessages.task.statusUpdated(this.name, 'Completed'),
         relatedId: this._id
       });
     }
   }
   
-  if (this.isModified('rating') && this.status === 'Completed' && this.deadline < new Date()) {
-    await Notification.insert({
-      recipient: this.assignedTo,
-      recipientModel: 'Student',
-      type: 'task',
-      content: notificationMessages.task.rated(this.name, this.rating),
-      relatedId: this._id
-    });
-  }
-
-  if (this.isModified('rating') && !this.ratedAt) {
-    this.ratedAt = new Date();
-  }
-  
-  if (this.isModified('assignedTo') || this.isNew) {
-    const Project = mongoose.model('Project');
-    const project = await Project.findById(this.project);
-    if (project) {
-      const isStudentInProject = project.selectedApplicants.some(
-        applicant => applicant.studentId.toString() === this.assignedTo.toString()
-      );
-      this.isStudentActive = isStudentInProject;
-    }
-  }
-  
-  if (this.isModified('status')) {
-    if (this.status === 'Submitted' && !this.submittedAt) {
-      this.submittedAt = new Date();
-    } else if (this.status === 'Completed' && !this.completedAt) {
-      this.completedAt = new Date();
-    }
-  }
   next();
 });
 

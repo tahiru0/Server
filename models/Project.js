@@ -357,12 +357,6 @@ projectSchema.methods.addApplicant = async function (applicantId) {
     throw error;
   }
 
-  if (student.currentProject) {
-    const error = new Error('Sinh viên đã được chấp nhận vào một dự án khác');
-    error.status = 400;
-    throw error;
-  }
-
   this.applicants.push({ applicantId });
   student.appliedProjects.push(this._id);
 
@@ -456,7 +450,6 @@ projectSchema.pre('save', async function (next) {
 // Save applicant's appliedDate into selectedApplicants when they are accepted
 projectSchema.methods.acceptApplicant = async function (applicantId) {
   try {
-    await this.checkDuplicateSelectedApplicants(applicantId);
     const applicant = this.applicants.find(a => a.applicantId.toString() === applicantId.toString());
     if (!applicant) {
       const error = new Error('Ứng viên không tồn tại trong danh sách ứng tuyển');
@@ -471,18 +464,9 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
       throw error;
     }
 
-    // Kiểm tra xem sinh viên đã được chọn vào dự án khác chưa
-    const existingProject = await this.model('Project').findOne({
-      'selectedApplicants.studentId': applicantId,
-      _id: { $ne: this._id }
-    });
-
-    if (existingProject) {
-      // Nếu sinh viên đã được chọn vào dự án khác, xóa khỏi danh sách applicants
-      this.applicants = this.applicants.filter(a => a.applicantId.toString() !== applicantId.toString());
-      await this.save();
-
-      const error = new Error('Sinh viên đã được chọn vào một dự án khác');
+    // Kiểm tra xem sinh viên đã được chọn vào dự án này chưa
+    if (this.selectedApplicants.some(a => a.studentId.toString() === applicantId.toString())) {
+      const error = new Error('Sinh viên đã được chọn vào dự án này');
       error.status = 400;
       throw error;
     }
@@ -493,7 +477,8 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
     });
     this.applicants = this.applicants.filter(a => a.applicantId.toString() !== applicantId.toString());
 
-    await student.setCurrentProject(this._id);
+    // Thêm dự án vào danh sách dự án hiện tại của sinh viên
+    await student.addCurrentProject(this._id);
 
     await this.save();
 
@@ -502,8 +487,6 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
       { _id: { $ne: this._id } },
       { $pull: { applicants: { applicantId: applicantId } } }
     );
-    // Xóa các đơn ứng tuyển khác của sinh viên
-    await student.removeAppliedProject(this._id);
 
     // Tạo thông báo cho sinh viên
     await mongoose.model('Notification').insert({
@@ -517,19 +500,6 @@ projectSchema.methods.acceptApplicant = async function (applicantId) {
     return this;
   } catch (error) {
     console.error('Lỗi khi chấp nhận ứng viên:', error);
-    throw error;
-  }
-};
-
-projectSchema.methods.checkDuplicateSelectedApplicants = async function (applicantId) {
-  const existingProject = await mongoose.model('Project').findOne({
-    'selectedApplicants.studentId': applicantId,
-    _id: { $ne: this._id }
-  });
-
-  if (existingProject) {
-    const error = new Error('Sinh viên đã được chọn vào một dự án khác');
-    error.status = 400;
     throw error;
   }
 };
@@ -962,10 +932,10 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
   const Student = mongoose.model('Student');
   const student = await Student.findById(studentId);
   if (student) {
-    await student.removeFromProject(this._id);
+    await student.removeCurrentProject(this._id);
   }
 
-  // Xóa mềm các task liên quan đến sinh viên
+  // Xóa mềm các task liên quan đến sinh viên trong dự án này
   const Task = mongoose.model('Task');
   await Task.updateMany(
     { project: this._id, assignedTo: studentId },
@@ -979,13 +949,12 @@ projectSchema.methods.removeStudentFromProject = async function (studentId, reas
   } else {
     notificationContent = notificationMessages.project.studentRemovedForOtherReason(this.title, reason);
   }
-
   await Notification.insert({
     recipient: studentId,
     recipientModel: 'Student',
     type: 'project',
     content: notificationContent,
-    relatedId: this._id
+    relatedId: this.id
   });
 };
 
@@ -1102,19 +1071,34 @@ projectSchema.statics.getProjectStatistics = async function (projectId) {
     studentPerformance
   };
 };
-projectSchema.methods.addSelectedApplicant = async function(studentId) {
+projectSchema.methods.addSelectedApplicant = async function (studentId) {
   if (!this.selectedApplicants.some(applicant => applicant.studentId.toString() === studentId.toString())) {
-    this.selectedApplicants.push({ studentId });
+    this.selectedApplicants.push({
+      studentId,
+      appliedDate: new Date(),
+      acceptedAt: new Date()
+    });
     await this.save();
 
     const Student = mongoose.model('Student');
     const student = await Student.findById(studentId);
     if (student) {
       await student.updateCurrentProjects();
+      
+      // Tạo thông báo cho sinh viên
+      await Notification.insert({
+        recipient: studentId,
+        recipientModel: 'Student',
+        type: 'project',
+        content: notificationMessages.project.studentAdded(this.title),
+        relatedId: this._id
+      });
+    } else {
+      console.error(`Không tìm thấy sinh viên với ID: ${studentId}`);
     }
   }
 };
-projectSchema.post('save', async function(doc) {
+projectSchema.post('save', async function (doc) {
   const Student = mongoose.model('Student');
   const studentIds = doc.selectedApplicants.map(applicant => applicant.studentId);
   await Student.updateMany(

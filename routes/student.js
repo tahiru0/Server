@@ -943,7 +943,11 @@ router.get('/majors/:schoolId', async (req, res) => {
 
 router.get('/current-projects', authenticateStudent, async (req, res) => {
   try {
-    const student = await Student.findById(req.user._id).populate('currentProjects');
+    const student = await Student.findById(req.user._id).populate({
+      path: 'currentProjects',
+      select: '_id title description status startDate endDate company',
+      populate: { path: 'company', select: 'name' }
+    });
     if (!student) {
       return res.status(404).json({ message: 'Không tìm thấy thông tin sinh viên.' });
     }
@@ -952,10 +956,59 @@ router.get('/current-projects', authenticateStudent, async (req, res) => {
       _id: project._id,
       title: project.title,
       description: project.description,
-      status: project.status
+      status: project.status,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      companyName: project.company.name
     }));
 
     res.status(200).json(currentProjects);
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
+});
+
+router.get('/current-project/:projectId', authenticateStudent, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const student = await Student.findById(req.user._id);
+    if (!student) {
+      return res.status(404).json({ message: 'Không tìm thấy thông tin sinh viên.' });
+    }
+
+    if (!student.currentProjects.includes(projectId)) {
+      return res.status(403).json({ message: 'Bạn không có quyền truy cập dự án này.' });
+    }
+
+    const project = await Project.findById(projectId)
+      .populate('company', 'name')
+      .populate('mentor', 'name email')
+      .populate('relatedMajors', 'name')
+      .populate('requiredSkills', 'name');
+
+    if (!project) {
+      return res.status(404).json({ message: 'Không tìm thấy dự án.' });
+    }
+
+    const projectDetails = {
+      _id: project._id,
+      title: project.title,
+      description: project.description,
+      status: project.status,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      companyName: project.company.name,
+      companyLogo: project.company.logo,
+      mentor: {
+        name: project.mentor.name,
+        email: project.mentor.email
+      },
+      relatedMajors: project.relatedMajors.map(major => major.name),
+      requiredSkills: project.requiredSkills.map(skill => skill.name)
+    };
+
+    res.status(200).json(projectDetails);
   } catch (error) {
     const { status, message } = handleError(error);
     res.status(status).json({ message });

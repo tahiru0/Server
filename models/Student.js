@@ -63,12 +63,12 @@ const StudentSchema = new Schema({
     dateOfBirth: {
         type: Date,
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 return v === null || v === undefined || (v instanceof Date && !isNaN(v));
             },
             message: 'Ngày sinh không hp lệ'
         },
-        set: function(v) {
+        set: function (v) {
             if (v === null || v === undefined || v === '') {
                 return undefined;
             }
@@ -109,7 +109,7 @@ const StudentSchema = new Schema({
             },
             message: props => `${props.value} không phải là số điện thoại hợp lệ!`
         },
-        set: function(v) {
+        set: function (v) {
             if (v) {
                 let phoneNumber = v.toString().replace(/\D/g, '');
                 if (phoneNumber.length === 9) {
@@ -560,6 +560,7 @@ StudentSchema.methods.getCurrentProjectDetails = async function () {
         .populate('company', 'name logo')
         .populate('relatedMajors', 'name')
         .populate('requiredSkills', 'name')
+        .populate('mentor', 'name email')
         .lean();
 
     if (!project) {
@@ -585,7 +586,11 @@ StudentSchema.methods.getCurrentProjectDetails = async function () {
         requiredSkills: project.requiredSkills.map(skill => skill.name),
         skillRequirements: project.skillRequirements,
         hasApplied: project.applicants.some(applicant => applicant.applicantId.toString() === this._id.toString()),
-        isSelected: project.selectedApplicants.some(selected => selected.studentId.toString() === this._id.toString())
+        isSelected: project.selectedApplicants.some(selected => selected.studentId.toString() === this._id.toString()),
+        mentor: project.mentor ? {
+            name: project.mentor.name,
+            email: project.mentor.email
+        } : null
     };
 };
 StudentSchema.methods.getAssignedTasks = async function () {
@@ -701,25 +706,25 @@ StudentSchema.set('toObject', { getters: true });
 StudentSchema.plugin(softDeletePlugin);
 
 
-StudentSchema.statics.findByFaculty = async function(schoolId, facultyName) {
-  const School = mongoose.model('School');
-  const school = await School.findById(schoolId);
-  
-  if (!school) return [];
-  
-  const faculty = school.faculties.find(f => f.name === facultyName);
-  
-  if (!faculty) return [];
-  
-  const majorIds = faculty.majors.map(m => m._id);
-  
-  return this.find({
-    school: schoolId,
-    major: { $in: majorIds }
-  }).populate('major');
+StudentSchema.statics.findByFaculty = async function (schoolId, facultyName) {
+    const School = mongoose.model('School');
+    const school = await School.findById(schoolId);
+
+    if (!school) return [];
+
+    const faculty = school.faculties.find(f => f.name === facultyName);
+
+    if (!faculty) return [];
+
+    const majorIds = faculty.majors.map(m => m._id);
+
+    return this.find({
+        school: schoolId,
+        major: { $in: majorIds }
+    }).populate('major');
 };
 
-StudentSchema.methods.updateFaculty = async function() {
+StudentSchema.methods.updateFaculty = async function () {
     if (!this.school || !this.major) {
         this.faculty = undefined;
         return;
@@ -733,7 +738,7 @@ StudentSchema.methods.updateFaculty = async function() {
         return;
     }
 
-    const faculty = school.faculties.find(f => 
+    const faculty = school.faculties.find(f =>
         f.majors.some(m => m._id.toString() === this.major.toString())
     );
 
@@ -760,18 +765,25 @@ StudentSchema.statics.getOneStudent = async function (id) {
     return student;
 };
 
-StudentSchema.methods.updateCurrentProjects = async function() {
-  const Project = mongoose.model('Project');
-  const projects = await Project.find({
-    'selectedApplicants.studentId': this._id
-  });
-  this.currentProjects = projects.map(project => project._id);
-  await this.save();
+StudentSchema.methods.updateCurrentProjects = async function () {
+    const Project = mongoose.model('Project');
+    const projects = await Project.find({
+        'selectedApplicants.studentId': this._id
+    });
+    this.currentProjects = projects.map(project => project._id);
+    await this.save();
 };
 
-StudentSchema.methods.removeFromProject = async function(projectId) {
-  this.currentProjects = this.currentProjects.filter(id => id.toString() !== projectId.toString());
-  await this.save();
+StudentSchema.methods.addCurrentProject = async function (projectId) {
+    if (!this.currentProjects.includes(projectId)) {
+        this.currentProjects.push(projectId);
+        await this.save();
+    }
+};
+
+StudentSchema.methods.removeCurrentProject = async function (projectId) {
+    this.currentProjects = this.currentProjects.filter(id => id.toString() !== projectId.toString());
+    await this.save();
 };
 
 export default mongoose.model('Student', StudentSchema);

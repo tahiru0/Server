@@ -81,7 +81,7 @@ const SchoolAccountSchema = new Schema({
             department: {
                 type: String,
                 required: function() {
-                    return this.role.name === 'department-head' || this.role.name === 'faculty-head' || this.role.name === 'faculty-staff';
+                    return this.role && (this.role.name === 'department-head' || this.role.name === 'faculty-head' || this.role.name === 'faculty-staff');
                 },
                 trim: true,
                 minlength: [2, 'Tên phòng/ban phải có ít nhất 2 ký tự'],
@@ -91,7 +91,7 @@ const SchoolAccountSchema = new Schema({
                 type: Schema.Types.ObjectId,
                 ref: 'Faculty',
                 required: function() {
-                    return this.role.name === 'faculty-head' || this.role.name === 'faculty-staff';
+                    return this.role && (this.role.name === 'faculty-head' || this.role.name === 'faculty-staff');
                 }
             },
             majors: [{
@@ -103,7 +103,13 @@ const SchoolAccountSchema = new Schema({
             }]
         },
         _id: false,
-        required: true
+        required: true,
+        validate: {
+            validator: function(v) {
+                return v && v.name;
+            },
+            message: 'Vai trò không hợp lệ'
+        }
     },
     isDeleted: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
@@ -249,49 +255,36 @@ SchoolAccountSchema.pre('validate', function(next) {
     next();
 });
 
-SchoolAccountSchema.statics.login = async function(schoolId, email, password, req) {
-    const school = await School.findOne({ _id: schoolId }).exec();
-    if (!school) {
-        throw new Error('Trường không tồn tại.');
-    }
+SchoolSchema.statics.login = async function(schoolId, email, password) {
+  const school = await this.findOne({ _id: schoolId, isDeleted: false }).exec();
+  if (!school) {
+    throw new Error('Trường không tồn tại hoặc đã bị vô hiệu hóa.');
+  }
 
-    const account = await this.findOne({ 
-        school: schoolId, 
-        email: email, 
-        isDeleted: false 
-    }).select('+passwordHash').exec();
+  const account = school.accounts.find(acc => acc.email === email && !acc.isDeleted);
+  if (!account) {
+    throw new Error('Thông tin đăng nhập không chính xác.');
+  }
 
-    if (!account) {
-        throw new Error('Email hoặc mật khẩu không đúng.');
-    }
+  const isMatch = await bcrypt.compare(password, account.passwordHash);
+  if (!isMatch) {
+    throw new Error('Thông tin đăng nhập không chính xác.');
+  }
 
-    const isMatch = await account.comparePassword(password);
-    if (!isMatch) {
-        throw new Error('Email hoặc mật khẩu không đúng.');
-    }
+  if (!account.isActive) {
+    throw new Error('Tài khoản chưa được kích hoạt. Vui lòng kiểm tra email để kích hoạt tài khoản.');
+  }
 
-    const token = jwt.sign(
-        { 
-            _id: account._id, 
-            model: 'SchoolAccount', 
-            role: account.role.name,
-            department: account.role.department 
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '1h' }
-    );
-
-    const loginHistory = new LoginHistory({
-        user: account._id,
-        userModel: 'SchoolAccount',
-        loginTime: new Date(),
-        ipAddress: req.connection.remoteAddress,
-        userAgent: req.headers['user-agent']
-    });
-    await loginHistory.save();
-
-    const { password: _, ...accountWithoutPassword } = account.toObject();
-    return { account: accountWithoutPassword, token };
+  return {
+    _id: account._id,
+    name: account.name,
+    email: account.email,
+    role: account.role.name,
+    department: account.role.department,
+    faculty: account.role.faculty,
+    schoolId: school._id,
+    schoolName: school.name
+  };
 };
 
 
@@ -616,6 +609,9 @@ export default School;
  *           type: boolean
  *           description: Trạng thái xóa mềm của trường học
  */
+
+
+
 
 
 

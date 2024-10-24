@@ -1545,16 +1545,21 @@ router.get('/majors', authenticateSchoolAccount, async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         let query = {};
-        if (req.query.search) {
-            query.name = { $regex: new RegExp('^' + req.query.search, 'i') };
-        }
+        let majors = [];
+        let total = 0;
 
-        const total = await Major.countDocuments(query);
-        const majors = await Major.find(query)
-            .select('_id name description')
-            .sort({ name: 1 })
-            .skip((page - 1) * limit)
-            .limit(limit);
+        if (req.query.search) {
+            majors = await Major.findByFlexibleName(req.query.search);
+            total = majors.length;
+            majors = majors.slice((page - 1) * limit, page * limit);
+        } else {
+            total = await Major.countDocuments(query);
+            majors = await Major.find(query)
+                .select('_id name description')
+                .sort({ name: 1 })
+                .skip((page - 1) * limit)
+                .limit(limit);
+        }
 
         const formattedMajors = majors.map(major => ({
             _id: major._id,
@@ -1733,6 +1738,14 @@ router.get('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
             account.role.name === 'faculty-head' && account.role.faculty && account.role.faculty.toString() === facultyId
         );
 
+        const facultyStaff = school.accounts.filter(account => 
+            account.role.name === 'faculty-staff' && account.role.faculty && account.role.faculty.toString() === facultyId
+        ).map(staff => ({
+            _id: staff._id,
+            name: staff.name,
+            avatar: staff.avatar
+        }));
+
         const formattedFaculty = {
             _id: faculty._id,
             name: faculty.name,
@@ -1748,6 +1761,7 @@ router.get('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
                 email: facultyHead.email,
                 avatar: facultyHead.avatar
             } : null,
+            staff: facultyStaff,
             studentsCount: await Student.countDocuments({ major: { $in: faculty.majors } }),
             tasksCount: facultyHead ? await Task.countDocuments({ assignedBy: facultyHead._id }) : 0
         };
@@ -1758,60 +1772,115 @@ router.get('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
         res.status(errorResponse.status).json({ message: errorResponse.message });
     }
 });
+
 router.put('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-    try {
-        const schoolId = req.user.school;
-        const facultyId = req.params.id;
-        const { name, description, majors, avatar } = req.body;
+  try {
+    const schoolId = req.user.school;
+    const facultyId = req.params.id;
+    const { name, description, majors, facultyHeadId } = req.body;
 
-        const school = await School.findById(schoolId).session(session);
-        if (!school) {
-            throw new Error('Không tìm thấy trường học.');
-        }
-
-        const faculty = school.faculties.id(facultyId);
-        if (!faculty) {
-            throw new Error('Không tìm thấy khoa.');
-        }
-
-        faculty.name = name || faculty.name;
-        faculty.description = description || faculty.description;
-        faculty.avatar = avatar || faculty.avatar;
-
-        if (majors && Array.isArray(majors)) {
-            const processedMajors = await Promise.all(majors.map(async (major) => {
-                let majorName = typeof major === 'string' ? major : (major.name || '');
-                if (!majorName.trim()) {
-                    throw new Error('Tên ngành học không được để trống');
-                }
-                majorName = majorName.trim();
-                
-                let existingMajor = await Major.findOne({ name: { $regex: new RegExp(`^${majorName}$`, 'i') } }).session(session);
-                if (!existingMajor) {
-                    existingMajor = new Major({ name: majorName });
-                    await existingMajor.save({ session });
-                }
-                return existingMajor._id;
-            }));
-            
-            // Loại bỏ các phần tử trùng lặp
-            faculty.majors = [...new Set(processedMajors)];
-        }
-
-        await school.save({ session });
-        await session.commitTransaction();
-        session.endSession();
-
-        res.status(200).json({ message: 'Cập nhật thông tin khoa thành công.', faculty });
-    } catch (error) {
-        await session.abortTransaction();
-        session.endSession();
-        const errorResponse = handleError(error);
-        res.status(errorResponse.status).json({ message: errorResponse.message });
+    const school = await School.findById(schoolId).session(session);
+    if (!school) {
+      throw new Error('Không tìm thấy trường học.');
     }
+
+    const faculty = school.faculties.id(facultyId);
+    if (!faculty) {
+      throw new Error('Không tìm thấy khoa.');
+    }
+
+    faculty.name = name || faculty.name;
+    faculty.description = description || faculty.description;
+
+    // Xử lý thay đổi trưởng khoa
+    if (facultyHeadId !== undefined) {
+      if (facultyHeadId === null) {
+        // Xóa trưởng khoa
+        if (faculty.facultyHead) {
+          const oldHead = school.accounts.id(faculty.facultyHead);
+          if (oldHead) {
+            oldHead.role = { name: 'faculty-staff', faculty: facultyId };
+          }
+        }
+        faculty.facultyHead = null;
+      } else {
+        // Thay đổi trưởng khoa
+        const newHead = school.accounts.id(facultyHeadId);
+        if (!newHead) {
+          throw new Error('Không tìm thấy tài khoản mới cho trưởng khoa.');
+        }
+        if (newHead.role && newHead.role.faculty && newHead.role.faculty.toString() !== facultyId) {
+          throw new Error('Tài khoản không thuộc khoa này.');
+        }
+        if (faculty.facultyHead) {
+          const oldHead = school.accounts.id(faculty.facultyHead);
+          if (oldHead) {
+            oldHead.role = { name: 'faculty-staff', faculty: facultyId };
+          }
+        }
+        newHead.role = { name: 'faculty-head', faculty: facultyId };
+        faculty.facultyHead = facultyHeadId;
+      }
+    }
+
+    if (majors && Array.isArray(majors)) {
+      const processedMajors = await Promise.all(majors.map(async (major) => {
+        if (mongoose.Types.ObjectId.isValid(major)) {
+          // Nếu major là một ID hợp lệ, kiểm tra xem nó có tồn tại không
+          const existingMajor = await Major.findById(major).session(session);
+          if (!existingMajor) {
+            throw new Error(`Không tìm thấy ngành học với ID: ${major}`);
+          }
+          return existingMajor._id;
+        } else {
+          // Nếu major không phải là ID, xử lý như một chuỗi
+          let majorName = typeof major === 'string' ? major : (major.name || '');
+          if (!majorName.trim()) {
+            throw new Error('Tên ngành học không được để trống');
+          }
+          majorName = majorName.trim();
+          
+          // Chuẩn hóa tên ngành học để so sánh
+          const normalizedName = majorName.toLowerCase().replace(/[^a-z0-9]/g, '');
+          
+          // Tìm kiếm ngành học với tên tương tự
+          let existingMajor = await Major.findOne({
+            $or: [
+              { name: { $regex: new RegExp(`^${majorName}$`, 'i') } },
+              { name: { $regex: new RegExp(`^${normalizedName}$`, 'i') } },
+              { abbreviation: { $regex: new RegExp(`^${normalizedName}$`, 'i') } }
+            ]
+          }).session(session);
+
+          if (!existingMajor) {
+            // Nếu không tìm thấy, tạo mới ngành học
+            existingMajor = new Major({ 
+              name: majorName,
+              abbreviation: normalizedName
+            });
+            await existingMajor.save({ session });
+          }
+          return existingMajor._id;
+        }
+      }));
+      
+      faculty.majors = [...new Set(processedMajors)];
+    }
+
+    await school.save({ session });
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({ message: 'Cập nhật thông tin khoa thành công.', faculty });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    const errorResponse = handleError(error);
+    res.status(errorResponse.status).json({ message: errorResponse.message });
+  }
 });
 router.delete('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
     try {
@@ -1831,7 +1900,9 @@ router.delete('/faculties/:id', authenticateSchoolAdmin, async (req, res) => {
 
         // Kiểm tra xem có tài khoản faculty head nào đang quản lý khoa này không
         const hasFacultyHead = school.accounts.some(account => 
+            account.role && 
             account.role.name === 'faculty-head' && 
+            account.role.faculty && 
             account.role.faculty.toString() === facultyId
         );
 
