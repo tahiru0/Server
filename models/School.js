@@ -157,6 +157,7 @@ SchoolAccountSchema.pre('save', async function(next) {
     next();
 });
 
+
 const SchoolSchema = new Schema({
     symbol: {
         type: String,
@@ -217,6 +218,112 @@ const SchoolSchema = new Schema({
     accreditations: [String],
     campusLocations: [String]
 }, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
+
+// Middleware để kiểm tra và đồng bộ facultyHead khi role.faculty thay đổi
+SchoolAccountSchema.pre('save', async function(next) {
+    if (this.isModified('role.faculty') || this.isModified('role.name')) {
+        const school = this.parent();
+        const faculty = school.faculties.id(this.role.faculty);
+        if (faculty) {
+            if (this.role.name === 'faculty-head') {
+                if (faculty.facultyHead && faculty.facultyHead.toString() !== this._id.toString()) {
+                    throw new Error('Khoa này đã có trưởng khoa khác.');
+                }
+                faculty.facultyHead = this._id;
+            } else if (this.role.name === 'faculty-staff' && faculty.facultyHead && faculty.facultyHead.toString() === this._id.toString()) {
+                faculty.facultyHead = null;
+            }
+        }
+    }
+    next();
+});
+
+// Middleware để kiểm tra và đồng bộ role.faculty khi facultyHead thay đổi
+FacultySchema.pre('save', async function(next) {
+    if (this.isModified('facultyHead')) {
+        const school = this.parent();
+        if (this.facultyHead) {
+            const account = school.accounts.id(this.facultyHead);
+            if (!account) {
+                throw new Error('Không tìm thấy tài khoản cho trưởng khoa mới.');
+            }
+            if (account.role.name !== 'faculty-head' || !account.role.faculty || account.role.faculty.toString() !== this._id.toString()) {
+                account.role.name = 'faculty-head';
+                account.role.faculty = this._id;
+            }
+        } else {
+            // Nếu facultyHead bị xóa, cập nhật tài khoản cũ (nếu có)
+            const oldHead = school.accounts.find(acc => 
+                acc.role.name === 'faculty-head' && 
+                acc.role.faculty && 
+                this._id && 
+                acc.role.faculty.toString() === this._id.toString()
+            );
+            if (oldHead) {
+                oldHead.role.name = 'faculty-staff';
+                // Giữ nguyên faculty, chỉ thay đổi vai trò
+            }
+        }
+    }
+    next();
+});
+
+// Phương thức để cập nhật facultyHead
+SchoolSchema.methods.updateFacultyHead = async function(facultyId, newHeadId, session) {
+  const faculty = this.faculties.id(facultyId);
+  if (!faculty) {
+    throw new Error('Không tìm thấy khoa.');
+  }
+
+  // Xử lý xóa trưởng khoa
+  if (newHeadId === null) {
+    if (faculty.facultyHead) {
+      const oldHead = this.accounts.id(faculty.facultyHead);
+      if (oldHead) {
+        oldHead.role.name = 'faculty-staff';
+        // Giữ nguyên faculty để duy trì liên kết với khoa
+      }
+    }
+    faculty.facultyHead = null;
+  } 
+  // Xử lý thêm/thay đổi trưởng khoa
+  else {
+    const newHead = this.accounts.id(newHeadId);
+    if (!newHead) {
+      throw new Error('Không tìm thấy tài khoản mới cho trưởng khoa.');
+    }
+    if (newHead.role.faculty && newHead.role.faculty.toString() !== facultyId) {
+      throw new Error('Tài khoản không thuộc khoa này.');
+    }
+
+    // Xử lý trưởng khoa cũ (nếu có)
+    if (faculty.facultyHead && faculty.facultyHead.toString() !== newHeadId) {
+      const oldHead = this.accounts.id(faculty.facultyHead);
+      if (oldHead) {
+        oldHead.role.name = 'faculty-staff';
+        // Giữ nguyên faculty để duy trì liên kết với khoa
+      }
+    }
+
+    // Cập nhật trưởng khoa mới
+    newHead.role = { name: 'faculty-head', faculty: facultyId };
+    faculty.facultyHead = newHeadId;
+  }
+
+  // Đảm bảo tính nhất quán
+  this.accounts.forEach(account => {
+    if (account._id.toString() !== (newHeadId || '').toString() && 
+        account.role.name === 'faculty-head' && 
+        account.role.faculty && 
+        account.role.faculty.toString() === facultyId) {
+      account.role.name = 'faculty-staff';
+      // Giữ nguyên faculty để duy trì liên kết với khoa
+    }
+  });
+
+  await this.save({ session });
+  return faculty;
+};
 
 // Getter cho trường logo
 SchoolSchema.path('logo').get(function (value) {
@@ -521,18 +628,18 @@ SchoolSchema.methods.setFacultyHead = async function(facultyId, accountId) {
         throw new Error('Không tìm thấy khoa.');
     }
 
-    const account = this.accounts.id(accountId);
-    if (!account) {
-        throw new Error('Không tìm thấy tài khoản.');
+    const newHead = this.accounts.id(accountId);
+    if (!newHead) {
+        throw new Error('Không tìm thấy tài khoản mới cho trưởng khoa.');
     }
 
-    // Kiểm tra xem tài khoản có thuộc khoa này không
-    if (account.role.faculty && account.role.faculty.toString() !== facultyId.toString()) {
+    // Kiểm tra xem tài khoản mới có thuộc khoa này không
+    if (newHead.role.faculty && newHead.role.faculty.toString() !== facultyId.toString()) {
         throw new Error('Tài khoản không thuộc khoa này.');
     }
 
-    // Kiểm tra xem khoa đã có trưởng khoa chưa
-    if (faculty.facultyHead) {
+    // Xử lý trưởng khoa cũ (nếu có)
+    if (faculty.facultyHead && faculty.facultyHead.toString() !== accountId) {
         const oldHead = this.accounts.id(faculty.facultyHead);
         if (oldHead) {
             oldHead.role = { name: 'faculty-staff', faculty: facultyId };
@@ -540,8 +647,18 @@ SchoolSchema.methods.setFacultyHead = async function(facultyId, accountId) {
     }
 
     // Cập nhật tài khoản mới thành trưởng khoa
-    account.role = { name: 'faculty-head', faculty: facultyId };
+    newHead.role = { name: 'faculty-head', faculty: facultyId };
     faculty.facultyHead = accountId;
+
+    // Đảm bảo tính nhất quán
+    this.accounts.forEach(account => {
+        if (account._id.toString() !== accountId && 
+            account.role.name === 'faculty-head' && 
+            account.role.faculty && 
+            account.role.faculty.toString() === facultyId) {
+            account.role = { name: 'faculty-staff', faculty: facultyId };
+        }
+    });
 
     await this.save();
     return faculty;
@@ -609,6 +726,14 @@ export default School;
  *           type: boolean
  *           description: Trạng thái xóa mềm của trường học
  */
+
+
+
+
+
+
+
+
 
 
 
