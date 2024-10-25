@@ -2,7 +2,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import xlsx from 'xlsx';
+import * as XLSX from 'xlsx';
 import mongoose from 'mongoose';
 import School from '../models/School.js';
 import Major from '../models/Major.js';
@@ -237,10 +237,10 @@ const handleUploadError = (err, req, res, next) => {
 };
 
 export const handleExcelUpload = async (file, Model, fieldMapping, schoolId) => {
-  const workbook = xlsx.read(file.buffer, { type: 'buffer' });
+  const workbook = XLSX.read(file.buffer, { type: 'buffer' });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  const data = xlsx.utils.sheet_to_json(sheet);
+  const data = XLSX.utils.sheet_to_json(sheet);
 
   // Xử lý tất cả các ngành học trước, không sử dụng transaction
   const uniqueMajors = [...new Set(data.map(row => row[fieldMapping.major]))];
