@@ -122,17 +122,17 @@ const loginAdmin = async (req, res) => {
     const { username, password } = req.body;
 
     if (!username || username.trim() === '') {
-      throw new Error('Tên đăng nhập không được để trống.');
+      return res.status(400).json({ message: 'Tên đăng nhập không được để trống.' });
     }
 
     if (!password || password.trim() === '') {
-      throw new Error('Mật khẩu không được để trống.');
+      return res.status(400).json({ message: 'Mật khẩu không được để trống.' });
     }
 
     const admin = await Admin.login(username, password);
 
     if (!admin) {
-      throw new Error('Thông tin đăng nhập không chính xác.');
+      return res.status(401).json({ message: 'Thông tin đăng nhập không chính xác.' });
     }
 
     const ipAddress = req.ip;
@@ -144,7 +144,6 @@ const loginAdmin = async (req, res) => {
     await saveLoginHistory(req, admin, 'Admin', true);
 
     if (await isNewDevice(admin, 'Admin', ipAddress, req.headers['user-agent'])) {
-      // Gửi thông báo về thiết bị mới
       await Notification.insert({
         recipient: admin._id,
         recipientModel: 'Admin',
@@ -154,8 +153,19 @@ const loginAdmin = async (req, res) => {
     }
 
     loginSuccess = true;
-    return res.json(prepareLoginResponse(admin, accessToken, refreshToken));
+
+    return res.status(200).json({
+      message: "Đăng nhập thành công",
+      user: {
+        id: admin._id,
+        username: admin.username,
+        role: admin.role
+      },
+      accessToken,
+      refreshToken
+    });
   } catch (error) {
+    console.error('Lỗi trong quá trình đăng nhập:', error);
     if (!res.headersSent) {
       await saveLoginHistory(req, null, 'Admin', false, error.message);
       const { status, message } = handleError(error);
