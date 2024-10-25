@@ -1,5 +1,5 @@
 import useragent from 'useragent';
-import geoip from 'geoip-lite';
+// import geoip from 'geoip-lite';
 
 export const parseUserAgent = (userAgentString) => {
     const agent = useragent.parse(userAgentString);
@@ -22,6 +22,5 @@ export const getDeviceType = (userAgentString) => {
 };
 
 export const getLocationFromIP = (ip) => {
-    const geo = geoip.lookup(ip);
-    return geo ? `${geo.city}, ${geo.country}` : 'Unknown';
+    return 'Unknown'; // Hoặc có thể trả về null hoặc một giá trị mặc định khác
 };

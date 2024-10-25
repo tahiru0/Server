@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 dotenv.config();
 import softDeletePlugin from '../utils/softDelete.js';
@@ -786,6 +786,60 @@ StudentSchema.methods.removeCurrentProject = async function (projectId) {
     await this.save();
 };
 
+StudentSchema.statics.registerStudent = async function(studentData) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { name, email, password, studentId, schoolId, majorId } = studentData;
+
+    const Major = mongoose.model('Major');
+    const majorInfo = await Major.findMajorWithFaculty(majorId);
+
+    if (!majorInfo) {
+      throw new Error('Không tìm thấy thông tin ngành học hoặc khoa');
+    }
+
+    const student = new this({
+      name,
+      email,
+      password,
+      studentId,
+      school: majorInfo.school._id,
+      faculty: majorInfo.faculty._id,
+      major: majorId,
+      isApproved: false
+    });
+
+    await student.save({ session });
+
+    // Tìm faculty-head
+    const facultyHead = majorInfo.school.accounts.find(acc => 
+      acc.role.name === 'faculty-head' && 
+      acc.role.faculty.toString() === majorInfo.faculty._id.toString()
+    );
+
+    if (facultyHead) {
+      await createOrUpdateGroupedNotification({
+        schoolId: majorInfo.school._id,
+        facultyHeadId: facultyHead._id,
+        studentName: student.name,
+        studentId: student._id,
+        majorName: majorInfo.major.name,
+        facultyName: majorInfo.faculty.name
+      }, { session });
+    }
+
+    await session.commitTransaction();
+    return student;
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
 export default mongoose.model('Student', StudentSchema);
 
 /**
@@ -829,6 +883,7 @@ export default mongoose.model('Student', StudentSchema);
  *           type: string
  *           description: Token làm mới để cấp lại access token
  */
+
 
 
 

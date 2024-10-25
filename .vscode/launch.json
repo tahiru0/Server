@@ -7,7 +7,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Launch Program",
+            "name": "Launch Development",
             "skipFiles": [
                 "<node_internals>/**"
             ],
@@ -15,6 +15,27 @@
             "args": [
                 "--open-api-docs"
             ],
+            "env": {
+                "NODE_ENV": "development"
+            },
+            "runtimeArgs": ["--experimental-modules"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Launch Production Build",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "${workspaceFolder}/dist/server.js",
+            "args": [
+                "--open-api-docs"
+            ],
+            "env": {
+                "NODE_ENV": "production"
+            },
+            "preLaunchTask": "npm: build",
+            "runtimeArgs": ["--experimental-modules"]
         }
     ]
 }

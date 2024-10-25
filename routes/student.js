@@ -39,59 +39,20 @@ const authenticateStudent = authenticate(Student, Student.findStudentById);
 // Đăng ký tài khoản sinh viên
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, studentId, schoolId, facultyId, majorId } = req.body;
+    const { name, email, password, studentId, schoolId, majorId } = req.body;
 
-    const school = await School.findById(schoolId);
-    if (!school) {
-      return res.status(404).json({ message: 'Không tìm thấy trường học' });
+    if (!name || !email || !password || !studentId || !schoolId || !majorId) {
+      return res.status(400).json({ message: 'Vui lòng cung cấp đầy đủ thông tin' });
     }
 
-    const faculty = school.faculties.id(facultyId);
-    if (!faculty) {
-      return res.status(404).json({ message: 'Không tìm thấy khoa' });
-    }
-
-    const major = await Major.findById(majorId);
-    if (!major) {
-      return res.status(404).json({ message: 'Không tìm thấy ngành học' });
-    }
-
-    // Kiểm tra xem ngành học có thuộc khoa đã chọn không
-    if (!faculty.majors.includes(majorId)) {
-      return res.status(400).json({ message: 'Ngành học không thuộc khoa đã chọn' });
-    }
-
-    const student = new Student({
+    const student = await Student.registerStudent({
       name,
       email,
       password,
       studentId,
-      school: schoolId,
-      faculty: facultyId,
-      major: majorId,
-      isApproved: false // Mặc định là chưa được duyệt
+      schoolId,
+      majorId
     });
-
-    await student.save();
-
-    // Tìm faculty-head quản lý ngành học này
-    const facultyHead = await School.findOne({
-      _id: schoolId,
-      'accounts.role.name': 'faculty-head',
-      'accounts.role.faculty': facultyId
-    });
-
-    if (facultyHead) {
-      // Gửi thông báo cho faculty-head
-      await createOrUpdateGroupedNotification({
-        schoolId,
-        facultyHeadId: facultyHead.accounts.find(acc => acc.role.faculty.toString() === facultyId.toString())._id,
-        studentName: student.name,
-        studentId: student._id,
-        majorName: major.name,
-        facultyName: faculty.name
-      });
-    }
 
     res.status(201).json({ message: 'Đăng ký thành công. Vui lòng chờ khoa xác nhận tài khoản.' });
   } catch (error) {

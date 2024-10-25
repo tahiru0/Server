@@ -18,7 +18,7 @@ import authenticate from '../middlewares/authenticate.js';
 import Admin from '../models/Admin.js';
 import { useImageUpload, handleUploadError, useExcelUpload, handleExcelUpload } from '../utils/upload.js';
 import Config from '../models/Config.js';
-import { createBackup, getBackupsList, scheduleBackup, restoreBackup, undoRestore, cancelScheduledBackup, performRestore } from '../utils/backup.js';
+import { createBackup, getBackupsList, scheduleBackup, restoreBackup, undoRestore, cancelScheduledBackup, analyzeBackup } from '../utils/backup.js';
 import { generateRandomPassword } from '../utils/passwordGenerator.js';
 
 dotenv.config();
@@ -119,11 +119,15 @@ router.put('/schools/:id', authenticateAdmin, schoolLogoUpload.single('logo'), h
       updateData.logo = path.join('/uploads', 'schools', 'logos', req.file.filename);
     }
 
-    const allowedFields = ['name', 'address', 'website', 'description', 'logo'];
+    const allowedFields = ['name', 'address', 'website', 'description', 'logo', 'isActive'];
     const filteredData = Object.keys(updateData)
       .filter(key => allowedFields.includes(key))
       .reduce((obj, key) => {
-        obj[key] = updateData[key];
+        if (key === 'isActive') {
+          obj[key] = updateData[key] === 'true' || updateData[key] === true;
+        } else {
+          obj[key] = updateData[key];
+        }
         return obj;
       }, {});
 
@@ -133,7 +137,16 @@ router.put('/schools/:id', authenticateAdmin, schoolLogoUpload.single('logo'), h
       return res.status(404).json({ message: 'Không tìm thấy trường học' });
     }
 
-    res.json(updatedSchool);
+    // Tạo đối tượng chứa các trường đã được cập nhật và giá trị mới của chúng
+    const updatedFields = Object.keys(filteredData).reduce((obj, key) => {
+      obj[key] = updatedSchool[key];
+      return obj;
+    }, {});
+
+    res.json({
+      message: 'Cập nhật trường học thành công',
+      updatedFields: updatedFields
+    });
   } catch (error) {
     next(error);
   }
@@ -781,9 +794,8 @@ router.post('/restore-backup', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Tên file sao lưu và mật khẩu là bắt buộc' });
     }
 
-    const result = await performRestore(backupFileName, password);
+    const result = await restoreBackup(backupFileName, password);
     
-    // Lưu thông tin về bản sao lưu hiện tại vào cơ sở dữ liệu
     await Config.findOneAndUpdate({}, {
       $set: {
         lastRestore: {
@@ -794,7 +806,7 @@ router.post('/restore-backup', authenticateAdmin, async (req, res) => {
       }
     });
 
-    res.json({ ...result, canUndo: true, undoExpiresIn: 30 }); // 30 giây để hoàn tác
+    res.json({ ...result, canUndo: true, undoExpiresIn: 30 });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi khi khôi phục sao lưu', error: error.message });
   }
@@ -818,7 +830,6 @@ router.post('/undo-restore', authenticateAdmin, async (req, res) => {
 
     const result = await undoRestore(config.lastRestore.backupFileName, config.lastRestore.password);
     
-    // Xóa thông tin về lần khôi phục gần nhất
     await Config.findOneAndUpdate({}, { $unset: { lastRestore: "" } });
 
     res.json({ ...result, message: 'Hoàn tác khôi phục thành công' });
@@ -864,7 +875,7 @@ router.post('/analyze-backup', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Tên file sao lưu và mật khẩu là bắt buộc' });
     }
 
-    const analysis = await restoreBackup(backupFileName, password);
+    const analysis = await analyzeBackup(backupFileName, password);
     res.json(analysis);
   } catch (error) {
     console.error('Lỗi chi tiết:', error);

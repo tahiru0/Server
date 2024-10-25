@@ -82,5 +82,20 @@ majorSchema.statics.findByFlexibleName = async function(name) {
   });
 };
 
+majorSchema.statics.findMajorWithFaculty = async function(majorId) {
+  const School = mongoose.model('School');
+  const school = await School.findOne({ 'faculties.majors': majorId });
+  if (!school) return null;
+
+  const faculty = school.faculties.find(f => f.majors.includes(majorId));
+  if (!faculty) return null;
+
+  return {
+    major: await this.findById(majorId),
+    faculty: faculty,
+    school: school
+  };
+};
+
 const Major = mongoose.model('Major', majorSchema);
 export default Major;

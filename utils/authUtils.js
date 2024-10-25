@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
 import LoginHistory from '../models/LoginHistory.js';
-import geoip from 'geoip-lite';
 import crypto from 'crypto';
 
 export const generateTokens = (user, model, ipAddress, additionalInfo = {}) => {
@@ -46,19 +45,6 @@ export const saveLoginHistory = async (req, user, userModel, isSuccess, failureR
   const ipAddress = req.ip === '::1' ? '127.0.0.1' : req.ip;
   const userAgent = req.headers['user-agent'];
   
-  let location = null;
-  if (ipAddress !== '127.0.0.1') {
-    const geo = geoip.lookup(ipAddress);
-    if (geo) {
-      location = {
-        country: geo.country,
-        city: geo.city,
-        latitude: geo.ll[0],
-        longitude: geo.ll[1]
-      };
-    }
-  }
-
   const isFirstLoginAttempt = user ? await isFirstLogin(user._id, userModel) : false;
 
   const loginHistory = new LoginHistory({
@@ -68,7 +54,6 @@ export const saveLoginHistory = async (req, user, userModel, isSuccess, failureR
     userAgent,
     loginStatus: isSuccess ? 'success' : 'failed',
     failureReason,
-    location,
     isFirstLogin: isFirstLoginAttempt
   });
 

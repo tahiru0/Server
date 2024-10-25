@@ -17,7 +17,7 @@ import mongoose from 'mongoose';
 import { handleQuery } from '../utils/queryHelper.js';
 import { getSchoolDashboardData } from '../models/dashboard.js';
 import multer from 'multer';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import * as xlsx from 'xlsx';
 import path from 'path';
 import fs from 'fs';

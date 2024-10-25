@@ -1,5 +1,4 @@
 import rateLimit from 'express-rate-limit';
-import Queue from 'better-queue';
 
 const createMultiLevelLimiter = (options) => {
   const limiters = options.map(option => rateLimit({
@@ -18,55 +17,16 @@ const createMultiLevelLimiter = (options) => {
     }
   }));
 
-  const requestQueues = new Map();
   const requestCounts = new Map();
-
-  const processQueue = (key, next) => {
-    const queue = requestQueues.get(key);
-    if (queue && queue.length > 0) {
-      const { req, res, callback } = queue.shift();
-      runLimiter(req, res, callback);
-    }
-    next();
-  };
-
-  const queueProcessor = new Queue(processQueue, {
-    concurrent: 1,
-    maxRetries: 0,
-    retryDelay: 1000,
-  });
-
-  const runLimiter = (req, res, next) => {
-    let index = 0;
-
-    const processNextLimiter = (err) => {
-      if (err) return next(err);
-      if (res.headersSent) return;
-
-      const limiter = limiters[index++];
-      if (limiter) {
-        limiter(req, res, processNextLimiter);
-      } else {
-        next();
-      }
-    };
-
-    processNextLimiter();
-  };
 
   return (req, res, next) => {
     const baseUrl = req.originalUrl.split('?')[0];
     const key = req.ip + '_' + baseUrl;
 
-    if (!requestQueues.has(key)) {
-      requestQueues.set(key, []);
-    }
-
     if (!requestCounts.has(key)) {
       requestCounts.set(key, 0);
     }
 
-    const queue = requestQueues.get(key);
     const count = requestCounts.get(key);
 
     if (count > 5) { // Giới hạn số lần lặp lại
@@ -81,14 +41,20 @@ const createMultiLevelLimiter = (options) => {
       requestCounts.set(key, Math.max(0, requestCounts.get(key) - 1));
     }, 1000);
 
-    if (queue.length >= 10) { // Giới hạn độ dài hàng đợi
-      return res.status(429).json({
-        message: 'Hệ thống đang quá tải. Vui lòng thử lại sau.'
-      });
-    }
+    let index = 0;
+    const processNextLimiter = (err) => {
+      if (err) return next(err);
+      if (res.headersSent) return;
 
-    queue.push({ req, res, callback: next });
-    queueProcessor.push(key);
+      const limiter = limiters[index++];
+      if (limiter) {
+        limiter(req, res, processNextLimiter);
+      } else {
+        next();
+      }
+    };
+
+    processNextLimiter();
   };
 };
 

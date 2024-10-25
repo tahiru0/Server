@@ -7,8 +7,7 @@ import { handleError } from '../utils/errorHandler.js';
 import { publicLimiter, loginLimiter } from '../utils/rateLimiter.js';
 import { sendEmail } from '../utils/emailService.js';
 import { passwordResetTemplate } from '../utils/emailTemplates.js';
-import useragent from 'useragent';
-import geoip from 'geoip-lite';
+import UAParser from 'ua-parser-js';
 import { generateTokens, saveLoginHistory, prepareLoginResponse } from '../utils/authUtils.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -16,12 +15,23 @@ import LoginHistory from '../models/LoginHistory.js';
 import Notification from '../models/Notification.js';
 import authenticate from '../middlewares/authenticate.js';
 import School from '../models/School.js';
-import notificationMessages from '../utils/notificationMessages.js'; // Import notificationMessages
+import notificationMessages from '../utils/notificationMessages.js';
 import axios from 'axios';
 import UserDevice from '../models/UserDevice.js';
 import mongoose from 'mongoose';
 
 const router = express.Router();
+
+const parseUserAgent = (userAgent) => {
+  const parser = new UAParser(userAgent);
+  const result = parser.getResult();
+  return {
+    browser: result.browser.name || 'Unknown',
+    version: result.browser.version || 'Unknown',
+    os: result.os.name || 'Unknown',
+    device: result.device.type || 'Unknown'
+  };
+};
 
 const isNewDevice = async (user, userModel, ipAddress, userAgent) => {
   const deviceInfo = parseUserAgent(userAgent);
@@ -614,29 +624,10 @@ router.post('/logout', authenticate, async (req, res) => {
   }
 });
 
-function parseUserAgent(ua) {
-  const agent = useragent.parse(ua);
-  return {
-    browser: agent.family,
-    version: agent.major,
-    os: agent.os.family
-  };
-}
-
 function getDeviceType(ua) {
   if (/mobile/i.test(ua)) return 'Mobile';
   if (/tablet/i.test(ua)) return 'Tablet';
   return 'Desktop';
-}
-
-async function getLocationFromIP(ip) {
-  const geo = geoip.lookup(ip);
-  return geo ? {
-    country: geo.country,
-    city: geo.city,
-    latitude: geo.ll[0],
-    longitude: geo.ll[1]
-  } : null;
 }
 
 router.post('/change-password', authenticate(), async (req, res) => {
