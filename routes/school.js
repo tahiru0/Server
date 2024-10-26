@@ -209,13 +209,13 @@ router.get('/activate/:token', async (req, res) => {
         const school = await School.findOne({ 'accounts.activationToken': token, 'accounts.tokenExpiration': { $gt: Date.now() } });
 
         if (!school) {
-            return res.redirect(`http://localhost:3000/school/login?error=${encodeURIComponent('Token không hợp lệ hoặc đã hết hạn.')}`);
+            return res.status(400).json({ message: 'Token không hợp lệ hoặc đã hết hạn.' });
         }
 
         const account = school.accounts.find(acc => acc.activationToken === token);
 
         if (!account) {
-            return res.redirect(`http://localhost:3000/school/login?error=${encodeURIComponent('Token không hợp lệ hoặc đã hết hạn.')}`);
+            return res.status(400).json({ message: 'Token không hợp lệ hoặc đã hết hạn.' });
         }
 
         account.isActive = true;
@@ -225,9 +225,12 @@ router.get('/activate/:token', async (req, res) => {
         await school.save();
 
         const loginToken = jwt.sign({ schoolId: school._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
-        res.redirect(`http://localhost:3000/school/login?token=${loginToken}&message=${encodeURIComponent('Xác thực tài khoản thành công, vui lòng đăng nhập để tiếp tục.')}`);
+        res.status(200).json({
+            message: 'Xác thực tài khoản thành công, vui lòng đăng nhập để tiếp tục.',
+            token: loginToken
+        });
     } catch (error) {
-        res.redirect(`http://localhost:3000/school/login?error=${encodeURIComponent(error.message)}`);
+        res.status(500).json({ message: error.message });
     }
 });
 

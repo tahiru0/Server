@@ -461,7 +461,7 @@ SchoolSchema.statics.register = async function(schoolData, accountData) {
 
         await newSchool.save({ session });
 
-        const activationLink = `http://localhost:5000/api/school/activate/${activationToken}`;
+        const activationLink = `http://localhost:3000/school/activate/${activationToken}`;
         await sendEmail(
             email,
             'Xác nhận tài khoản trường học của bạn',

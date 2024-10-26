@@ -5,7 +5,7 @@ import Config from '../models/Config.js';
 
 dotenv.config();
 
-const getEmailConfig = async () => {
+export const getEmailConfig = async () => {
   const config = await Config.findOne();
   if (config) {
     return {
@@ -45,29 +45,34 @@ const transporter = nodemailer.createTransport({
 
 // Function to send an email using plain HTML content
 export const sendEmail = async (to, subject, htmlContent, type = 'sent') => {
-  const emailConfig = await getEmailConfig();
-  
-  const transporterConfig = {
-    service: emailConfig.service,
-    auth: emailConfig.auth
-  };
-
-  if (emailConfig.service === 'custom') {
-    transporterConfig.host = emailConfig.host;
-    transporterConfig.port = emailConfig.port;
-    delete transporterConfig.service;
-  }
-
-  const transporter = nodemailer.createTransport(transporterConfig);
-
-  const mailOptions = {
-    from: `"${emailConfig.senderName}" <${emailConfig.auth.user}>`,
-    to: to,
-    subject: subject,
-    html: htmlContent,
-  };
-
   try {
+    const config = await getEmailConfig();
+    const transporter = nodemailer.createTransport({
+      service: config.service,
+      host: config.host,
+      port: config.port,
+      secure: config.port === 465,
+      auth: {
+        user: config.auth.user,
+        pass: config.auth.pass
+      }
+    });
+
+    const mailOptions = {
+      from: `"${config.senderName}" <${config.auth.user}>`,
+      to,
+      subject,
+      html: htmlContent,
+    };
+
+    console.log('Attempting to send email...');
+    console.log('Email configuration:', {
+      service: config.service,
+      host: config.host,
+      port: config.port,
+      user: config.auth.user
+    });
+
     let info = await transporter.sendMail(mailOptions);
     console.log('Email sent:', info.response);
 
@@ -76,8 +81,17 @@ export const sendEmail = async (to, subject, htmlContent, type = 'sent') => {
     return { success: true, message: 'Email sent successfully' };
   } catch (error) {
     console.error('Error sending email:', error);
-    const email = new Email({ to, subject, htmlContent, type, status: 'failed', error: error.message });
-    await email.save();
+    
+    const failedEmail = new Email({
+      to,
+      subject,
+      htmlContent,
+      type,
+      status: 'failed',
+      error: error.message
+    });
+    await failedEmail.save();
+    
     return { success: false, message: 'Failed to send email', error: error.message };
   }
 };

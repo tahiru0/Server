@@ -3,7 +3,7 @@ import express from 'express';
 import dotenv from 'dotenv-safe';
 import Company from '../models/Company.js';
 import Project from '../models/Project.js';
-import { sendEmail, restoreEmail } from '../utils/emailService.js';
+import { sendEmail, restoreEmail, getEmailConfig } from '../utils/emailService.js';
 import Email from '../models/Email.js';
 import EmailTemplate from '../models/EmailTemplate.js';
 import School from '../models/School.js';
@@ -18,8 +18,23 @@ import authenticate from '../middlewares/authenticate.js';
 import Admin from '../models/Admin.js';
 import { useImageUpload, handleUploadError, useExcelUpload, handleExcelUpload } from '../utils/upload.js';
 import Config from '../models/Config.js';
-import { createBackup, getBackupsList, scheduleBackup, restoreBackup, undoRestore, cancelScheduledBackup, analyzeBackup } from '../utils/backup.js';
+import { 
+  createBackup, 
+  getBackupsList, 
+  scheduleBackup, 
+  restoreBackup, 
+  undoRestore, 
+  cancelScheduledBackup, 
+  analyzeBackup,
+  encryptPassword,
+  getBackupConfig,
+  ensureBackupDir // Thêm dòng này
+} from '../utils/backup.js';
 import { generateRandomPassword } from '../utils/passwordGenerator.js';
+import nodemailer from 'nodemailer';
+import fs from 'fs';
+import AdmZip from 'adm-zip';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -220,7 +235,7 @@ router.post('/schools', authenticateAdmin, upload.single('logo'), async (req, re
     const { name, address, website, establishedDate, accounts } = req.body;
 
     if (!name) {
-      return res.status(400).json({ message: 'Tên trường không được bỏ trống' });
+      return res.status(400).json({ message: 'Tên trường không được bỏ trng' });
     }
     if (!address) {
       return res.status(400).json({ message: 'Địa chỉ trường không được bỏ trống' });
@@ -326,43 +341,62 @@ router.post('/send-email', authenticateAdmin, async (req, res, next) => {
   }
 });
 router.get('/emails', authenticateAdmin, async (req, res, next) => {
-  const { search, sort = 'sentAt', order = 'desc', showDeleted, page = 1, limit = 10 } = req.query;
-
   try {
+    const { page = 1, limit = 10, search, sort = 'sentAt', order = 'desc', showDeleted, status } = req.query;
+    
     let query = {};
+
+    // Xử lý tùy chọn showDeleted
     if (showDeleted === 'true') {
       query.isDeleted = true;
-    } else {
-      query.isDeleted = { $ne: true };
+    } else if (showDeleted === 'false') {
+      query.isDeleted = false;
     }
+    // Nếu showDeleted không được chỉ định, không thêm điều kiện isDeleted vào query
+
+    // Xử lý tùy chọn status
+    if (status === 'sent' || status === 'failed') {
+      query.status = status;
+    }
+
     if (search) {
       query.$or = [
-        { to: new RegExp(search, 'i') },
-        { subject: new RegExp(search, 'i') }
+        { to: { $regex: search, $options: 'i' } },
+        { subject: { $regex: search, $options: 'i' } }
       ];
     }
 
     const options = {
       page: parseInt(page),
       limit: parseInt(limit),
-      sort,
-      order
+      sort: { [sort]: order === 'asc' ? 1 : -1 }
     };
 
-    const result = await Email.getEmailsPaginated(query, options);
-    res.status(200).json(result);
+    const result = await Email.paginate(query, options);
+
+    res.json({
+      emails: result.docs,
+      currentPage: result.page,
+      totalPages: result.totalPages,
+      totalItems: result.totalDocs,
+      limit: result.limit
+    });
+
   } catch (error) {
+    console.error('Error in /emails route:', error);
     next(error);
   }
 });
 router.post('/emails/restore/:id', authenticateAdmin, async (req, res, next) => {
   try {
-    const email = await restoreEmail(req.params.id);
-    res.status(200).json({ message: 'Email đã được khôi phục.', email });
-  } catch (error) {
-    if (error.message === 'Không tìm thấy email.') {
-      return res.status(404).json({ message: error.message });
+    const email = await Email.findById(req.params.id);
+    if (!email) {
+      return res.status(404).json({ message: 'Không tìm thấy email.' });
     }
+    email.isDeleted = false;
+    await email.save();
+    res.status(200).json({ message: 'Email đã được khôi phục.' });
+  } catch (error) {
     next(error);
   }
 });
@@ -373,8 +407,8 @@ router.delete('/emails/:id', authenticateAdmin, async (req, res, next) => {
     if (!email) {
       return res.status(404).json({ message: 'Không tìm thấy email.' });
     }
-
-    await email.softDelete();
+    email.isDeleted = true;
+    await email.save();
     res.status(200).json({ message: 'Email đã được xóa mềm.' });
   } catch (error) {
     next(error);
@@ -469,8 +503,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res, next) => {
 // Lấy cấu hình email hiện tại
 router.get('/email-config', authenticateAdmin, async (req, res, next) => {
   try {
-    const config = await Config.findOne();
-    res.json(config || {});
+    const config = await getEmailConfig();
+    res.json(config);
   } catch (error) {
     next(error);
   }
@@ -501,9 +535,61 @@ router.post('/email-config', authenticateAdmin, async (req, res, next) => {
     }
 
     await config.save();
-    res.json({ message: 'Cấu hình email đã được cập nhật', config });
+
+    // Cập nhật transporter với cấu hình mới
+    const newConfig = await getEmailConfig();
+    const transporter = nodemailer.createTransport({
+      service: newConfig.service,
+      host: newConfig.host,
+      port: newConfig.port,
+      secure: newConfig.port === 465,
+      auth: {
+        user: newConfig.auth.user,
+        pass: newConfig.auth.pass
+      }
+    });
+
+    // Kiểm tra kết nối
+    try {
+      await transporter.verify();
+      res.json({ message: 'Cấu hình email đã được cập nhật và kiểm tra thành công', config });
+    } catch (error) {
+      res.status(400).json({ message: 'Cấu hình email không hợp lệ', error: error.message });
+    }
   } catch (error) {
     next(error);
+  }
+});
+
+// Route gửi email test
+router.post('/send-test-email', authenticateAdmin, async (req, res, next) => {
+  try {
+    const { to, subject, htmlContent } = req.body;
+    const config = await getEmailConfig();
+    
+    const transporter = nodemailer.createTransport({
+      service: config.service,
+      host: config.host,
+      port: config.port,
+      secure: config.port === 465,
+      auth: {
+        user: config.auth.user,
+        pass: config.auth.pass
+      }
+    });
+
+    const mailOptions = {
+      from: `"${config.senderName}" <${config.auth.user}>`,
+      to,
+      subject,
+      html: htmlContent
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    res.json({ message: 'Email test đã được gửi thành công', info });
+  } catch (error) {
+    console.error('Lỗi khi gửi email test:', error);
+    res.status(500).json({ message: 'Không thể gửi email test', error: error.message });
   }
 });
 
@@ -709,165 +795,80 @@ router.post('/upload/projects', authenticateAdmin, upload1.single('file'), async
   }
 });
 
-router.post('/backup', authenticateAdmin, async (req, res, next) => {
-  try {
-    const { backupName } = req.body;
-    const backupPath = await createBackup(backupName);
-    res.json({ message: 'Sao lưu thành công', backupPath });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/backups', authenticateAdmin, (req, res, next) => {
-  try {
-    const backups = getBackupsList();
-    res.json(backups);
-  } catch (error) {
-    next(error);
-  }
-});
-
+// Thiết lập và bật/tắt tự động backup
 router.post('/backup-config', authenticateAdmin, async (req, res, next) => {
   try {
-    const { backupDay, backupTime, retentionPeriod, password, defaultBackupName, schedule } = req.body;
-    const [backupHour, backupMinute] = backupTime.split('T')[1].split(':');
+    const { isAutoBackup, schedule, password } = req.body;
+    const encryptedPassword = encryptPassword(password);
     const config = await Config.findOneAndUpdate(
       {},
       { 
         $set: { 
           backupConfig: { 
-            schedule: {
-              frequency: 'weekly',
-              dayOfWeek: parseInt(backupDay),
-              time: `${backupHour}:${backupMinute}`
-            },
-            password, 
-            retentionPeriod,
-            defaultBackupName
+            isAutoBackup,
+            schedule,
+            password: encryptedPassword
           } 
         } 
       },
       { new: true, upsert: true }
     );
-    await scheduleBackup();
+    if (isAutoBackup) {
+      await scheduleBackup();
+    } else {
+      cancelScheduledBackup();
+    }
     res.json({ message: 'Cấu hình sao lưu đã được cập nhật', config: config.backupConfig });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/maintenance', authenticateAdmin, async (req, res) => {
+// Lấy danh sách backup
+router.get('/backups', authenticateAdmin, async (req, res, next) => {
   try {
-    const { isActive, message } = req.body;
-    const config = await Config.findOneAndUpdate(
-      {},
-      { $set: { 'maintenanceMode.isActive': isActive, 'maintenanceMode.message': message } },
-      { new: true, upsert: true }
-    );
-    res.json({ message: `Chế độ bảo trì đã được ${isActive ? 'bật' : 'tắt'}`, config: config.maintenanceMode });
+    const { page = 1, limit = 10 } = req.query;
+    const backups = await getBackupsList(parseInt(page), parseInt(limit));
+    res.json(backups);
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi khi cập nhật chế độ bảo trì', error: error.message });
-  }
-});
-router.get('/maintenance', authenticateAdmin, async (req, res) => {
-  try {
-    const config = await Config.findOne({}, 'maintenanceMode');
-    if (!config || !config.maintenanceMode) {
-      return res.json({ isActive: false, message: '' });
-    }
-    res.json(config.maintenanceMode);
-  } catch (error) {
-    res.status(500).json({ message: 'Lỗi khi lấy trạng thái bảo trì', error: error.message });
+    next(error);
   }
 });
 
+// Tạo backup thủ công
+router.post('/backup', authenticateAdmin, async (req, res, next) => {
+  try {
+    const { backupName, password } = req.body;
+    if (!password) {
+      return res.status(400).json({ message: 'Mật khẩu là bắt buộc' });
+    }
+    const backupPath = await createBackup(backupName, password);
+    res.json({ message: 'Sao lưu thành công', backupPath });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Khôi phục backup
 router.post('/restore-backup', authenticateAdmin, async (req, res) => {
   try {
-    const config = await Config.findOne();
-    if (!config || !config.maintenanceMode.isActive) {
-      return res.status(403).json({ message: 'Chỉ có thể khôi phục sao lưu khi đang trong chế độ bảo trì' });
-    }
-
     const { backupFileName, password } = req.body;
     if (!backupFileName || !password) {
       return res.status(400).json({ message: 'Tên file sao lưu và mật khẩu là bắt buộc' });
     }
 
     const result = await restoreBackup(backupFileName, password);
-    
-    await Config.findOneAndUpdate({}, {
-      $set: {
-        lastRestore: {
-          backupFileName,
-          password,
-          timestamp: new Date()
-        }
-      }
-    });
-
-    res.json({ ...result, canUndo: true, undoExpiresIn: 30 });
+    res.json(result);
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi khi khôi phục sao lưu', error: error.message });
-  }
-});
-
-router.post('/undo-restore', authenticateAdmin, async (req, res) => {
-  try {
-    const config = await Config.findOne();
-    if (!config || !config.maintenanceMode.isActive) {
-      return res.status(403).json({ message: 'Chỉ có thể hoàn tác khôi phục khi đang trong chế độ bảo trì' });
-    }
-
-    if (!config.lastRestore) {
-      return res.status(400).json({ message: 'Không có thông tin về lần khôi phục gần nhất' });
-    }
-
-    const now = new Date();
-    if (now - config.lastRestore.timestamp > 30000) { // 30 giây
-      return res.status(400).json({ message: 'Đã hết thời gian cho phép hoàn tác' });
-    }
-
-    const result = await undoRestore(config.lastRestore.backupFileName, config.lastRestore.password);
-    
-    await Config.findOneAndUpdate({}, { $unset: { lastRestore: "" } });
-
-    res.json({ ...result, message: 'Hoàn tác khôi phục thành công' });
-  } catch (error) {
-    res.status(500).json({ message: 'Lỗi khi hoàn tác khôi phục', error: error.message });
-  }
-});
-
-router.get('/backup-config', authenticateAdmin, async (req, res, next) => {
-  try {
-    const config = await Config.findOne({}, 'backupConfig');
-    if (!config || !config.backupConfig) {
-      return res.status(404).json({ message: 'Không tìm thấy cấu hình sao lưu' });
-    }
-    res.json({ config: config.backupConfig });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post('/cancel-backup', authenticateAdmin, async (req, res, next) => {
-  try {
-    const result = cancelScheduledBackup();
-    if (result) {
-      const config = await Config.findOneAndUpdate(
-        {},
-        { $unset: { 'backupConfig.schedule': "" } },
-        { new: true }
-      );
-      res.json({ message: 'Đã hủy lịch sao lưu tự động', config: config.backupConfig });
+    if (error.message === 'Mật khẩu không đúng') {
+      res.status(400).json({ message: 'Mật khẩu không đúng' });
     } else {
-      res.status(400).json({ message: 'Không có lịch sao lưu tự động nào đang hoạt động' });
+      res.status(500).json({ message: 'Lỗi khi khôi phục sao lưu', error: error.message });
     }
-  } catch (error) {
-    next(error);
   }
 });
 
+// Phân tích backup
 router.post('/analyze-backup', authenticateAdmin, async (req, res) => {
   try {
     const { backupFileName, password } = req.body;
@@ -878,12 +879,51 @@ router.post('/analyze-backup', authenticateAdmin, async (req, res) => {
     const analysis = await analyzeBackup(backupFileName, password);
     res.json(analysis);
   } catch (error) {
-    console.error('Lỗi chi tiết:', error);
-    res.status(500).json({ 
-      message: 'Lỗi khi phân tích sao lưu', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    if (error.message === 'Mật khẩu không đúng') {
+      res.status(400).json({ message: 'Mật khẩu không đúng' });
+    } else {
+      res.status(500).json({ message: 'Lỗi khi phân tích sao lưu', error: error.message });
+    }
+  }
+});
+
+// Thêm route mới để gửi lại email
+router.post('/resend-email', authenticateAdmin, async (req, res, next) => {
+  const { emailId } = req.body;
+
+  try {
+    if (!emailId) {
+      return res.status(400).json({ message: 'ID email là bắt buộc.' });
+    }
+
+    // Tìm email trong cơ sở dữ liệu
+    const emailToResend = await Email.findById(emailId);
+    if (!emailToResend) {
+      return res.status(404).json({ message: 'Không tìm thấy email.' });
+    }
+
+    // Gửi lại email
+    const result = await sendEmail(emailToResend.to, emailToResend.subject, emailToResend.htmlContent, emailToResend.type);
+
+    if (result.success) {
+      res.status(200).json({ message: 'Email đã được gửi lại thành công.' });
+    } else {
+      res.status(500).json({ message: 'Không thể gửi lại email.', error: result.error });
+    }
+  } catch (error) {
+    console.error('Lỗi khi gửi lại email:', error);
+    next(error);
+  }
+});
+
+// Thêm route mới để lấy cấu hình backup
+router.get('/backup-config', authenticateAdmin, async (req, res, next) => {
+  try {
+    ensureBackupDir(); // Đảm bảo thư mục backup tồn tại
+    const config = await getBackupConfig();
+    res.json({ config });
+  } catch (error) {
+    next(error);
   }
 });
 

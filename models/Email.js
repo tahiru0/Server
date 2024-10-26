@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import softDeletePlugin from '../utils/softDelete.js';
+import mongoosePaginate from 'mongoose-paginate-v2';
 
 const emailSchema = new mongoose.Schema({
   to: {
@@ -25,7 +25,15 @@ const emailSchema = new mongoose.Schema({
   },
   isDeleted: {
     type: Boolean,
-    default: false,
+    default: false
+  },
+  status: {
+    type: String,
+    enum: ['sent', 'failed'],
+    default: 'sent'
+  },
+  error: {
+    type: String
   }
 });
 
@@ -67,7 +75,7 @@ emailSchema.statics.getEmailsPaginated = async function(query, options) {
   };
 };
 
-emailSchema.plugin(softDeletePlugin);
+emailSchema.plugin(mongoosePaginate);
 
 const Email = mongoose.model('Email', emailSchema);
 

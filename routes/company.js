@@ -168,7 +168,7 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
     });
 
     // Gửi email xác nhận sau khi đã trả về response
-    const activationLink = `http://localhost:5000/api/company/activate/${newCompany.accounts[0].activationToken}`;
+    const activationLink = `http://localhost:3000/company/activate/${newCompany.accounts[0].activationToken}`;
     sendEmail(
       email,
       'Xác nhận tài khoản công ty của bạn',
@@ -207,32 +207,35 @@ router.post('/register', upload.single('logo'), async (req, res, next) => {
  *         description: Chuyển hướng đến trang đăng nhập
  */
 router.get('/activate/:token', async (req, res, next) => {
-    const { token } = req.params;
+  const { token } = req.params;
 
-    try {
-        const company = await Company.findOne({ 'accounts.activationToken': token, 'accounts.tokenExpiration': { $gt: Date.now() } });
+  try {
+      const company = await Company.findOne({ 'accounts.activationToken': token, 'accounts.tokenExpiration': { $gt: Date.now() } });
 
-        if (!company) {
-            return res.redirect(`http://localhost:3000/company/login?error=${encodeURIComponent('Token không hợp lệ hoặc đã hết hạn.')}`);
-        }
+      if (!company) {
+          return res.status(400).json({ message: 'Token không hợp lệ hoặc đã hết hạn.' });
+      }
 
-        const account = company.accounts.find(acc => acc.activationToken === token);
+      const account = company.accounts.find(acc => acc.activationToken === token);
 
-        if (!account) {
-            return res.redirect(`http://localhost:3000/company/login?error=${encodeURIComponent('Token không hợp lệ hoặc đã hết hạn.')}`);
-        }
+      if (!account) {
+          return res.status(400).json({ message: 'Token không hợp lệ hoặc đã hết hạn.' });
+      }
 
-        account.isActive = true;
-        account.activationToken = undefined;
-        account.tokenExpiration = undefined;
+      account.isActive = true;
+      account.activationToken = undefined;
+      account.tokenExpiration = undefined;
 
-        await company.save();
+      await company.save();
 
-        const loginToken = jwt.sign({ companyId: company._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
-        res.redirect(`http://localhost:3000/company/login?token=${loginToken}&message=${encodeURIComponent('Xác thực tài khoản thành công, vui lòng đăng nhập để tiếp tục.')}`);
-    } catch (error) {
-        next(error);
-    }
+      const loginToken = jwt.sign({ companyId: company._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+      res.status(200).json({
+          message: 'Xác thực tài khoản thành công, vui lòng đăng nhập để tiếp tục.',
+          token: loginToken
+      });
+  } catch (error) {
+      next(error);
+  }
 });
 
 /**
