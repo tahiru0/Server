@@ -3,7 +3,6 @@ import mongoose from 'mongoose';
 import { handleError } from '../utils/errorHandler.js';
 
 const authenticate = (Model, findUserById, requiredRole) => async (req, res, next) => {
-
   const token = req.header('Authorization')?.replace('Bearer ', '');
 
   if (!token) {
@@ -12,58 +11,32 @@ const authenticate = (Model, findUserById, requiredRole) => async (req, res, nex
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Decoded token:', decoded);
 
     let user;
-    if (decoded.model === 'Company' || decoded.model === 'School') {
-      const ParentModel = mongoose.model(decoded.model);
-      const parent = await ParentModel.findOne({ 'accounts._id': decoded._id });
-      if (!parent) {
-        return res.status(401).json({ message: 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.' });
-      }
-      user = parent.accounts.id(decoded._id);
-      user.parentId = parent._id;
+    if (decoded.model === 'SchoolAccount') {
+      const School = mongoose.model('School');
+      user = await School.findSchoolAccountById(decoded, requiredRole);
     } else {
       user = await findUserById(decoded);
     }
 
     if (!user) {
+      console.log('User not found');
       return res.status(401).json({ message: 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.' });
     }
 
+    // Kiểm tra vai trò nếu cần
     if (requiredRole && user.role !== requiredRole) {
+      console.log(`Role mismatch. Required: ${requiredRole} Actual: ${user.role}`);
       return res.status(403).json({ message: 'Bạn không có quyền thực hiện hành động này.' });
     }
 
-    req.token = token;
     req.user = user;
-
-    if (decoded.model === 'Company') {
-      req.userModel = 'CompanyAccount';
-      req.companyId = user.parentId;
-    } else if (decoded.model === 'School') {
-      req.userModel = 'SchoolAccount';
-      req.schoolId = user.parentId;
-    } else if (decoded.model === 'Student') {
-      req.userModel = 'Student';
-    } else if (decoded.role === 'admin' && decoded.model === 'Admin') {
-      req.userModel = 'Admin';
-    } else {
-      req.userModel = decoded.model;
-    }
-
-    // Thêm role vào req.user nếu nó không tồn tại
-    if (!req.user.role && (req.userModel === 'CompanyAccount' || req.userModel === 'SchoolAccount')) {
-      req.user.role = user.role;
-    }
-
     next();
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.' });
-    }
-    const { status, message } = handleError(error);
     console.error('Error in authenticate middleware:', error);
-    res.status(status).json({ message });
+    return res.status(401).json({ message: 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.' });
   }
 };
 

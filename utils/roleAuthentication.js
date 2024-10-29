@@ -34,3 +34,5 @@ export const authenticateAnyRole = (req, res, next) => {
 
   authenticate()(req, res, next);
 };
+
+export const authenticateSchoolFacultyHead = authenticate(School, (decoded) => School.findSchoolAccountById(decoded, 'faculty-head'));

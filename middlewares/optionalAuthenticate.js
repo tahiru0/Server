@@ -14,12 +14,23 @@ const optionalAuthenticate = (Model) => async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     let user;
-    if (decoded.model === 'Company' || decoded.model === 'School') {
-      const ParentModel = mongoose.model(decoded.model);
-      const parent = await ParentModel.findOne({ 'accounts._id': decoded._id });
-      if (parent) {
-        user = parent.accounts.id(decoded._id);
-        user.parentId = parent._id;
+    // Sửa điều kiện kiểm tra cho CompanyAccount
+    if (decoded.model === 'CompanyAccount') {
+      const Company = mongoose.model('Company');
+      const company = await Company.findById(decoded.companyId);
+      if (company) {
+        user = company.accounts.id(decoded._id);
+        if (user) {
+          user.parentId = company._id;
+          user.role = decoded.role; // Gán role từ token
+        }
+      }
+    } else if (decoded.model === 'School') {
+      const School = mongoose.model('School');
+      const school = await School.findOne({ 'accounts._id': decoded._id });
+      if (school) {
+        user = school.accounts.id(decoded._id);
+        user.parentId = school._id;
       }
     } else {
       user = await Model.findById(decoded._id);
@@ -28,29 +39,17 @@ const optionalAuthenticate = (Model) => async (req, res, next) => {
     if (user) {
       req.token = token;
       req.user = user;
-
-      if (decoded.model === 'Company') {
-        req.userModel = 'CompanyAccount';
-        req.companyId = user.parentId;
-      } else if (decoded.model === 'School') {
-        req.userModel = 'SchoolAccount';
-        req.schoolId = user.parentId;
-      } else if (decoded.model === 'Student') {
-        req.userModel = 'Student';
-      } else if (decoded.role === 'admin' && decoded.model === 'Admin') {
-        req.userModel = 'Admin';
-      } else {
-        req.userModel = decoded.model;
-      }
-
-      if (!req.user.role && (req.userModel === 'CompanyAccount' || req.userModel === 'SchoolAccount')) {
-        req.user.role = user.role;
+      req.userModel = decoded.model;
+      
+      if (decoded.model === 'CompanyAccount') {
+        req.companyId = decoded.companyId;
       }
     } else {
       req.user = null;
       req.userModel = null;
     }
   } catch (error) {
+    console.error('Auth Error:', error);
     req.user = null;
     req.userModel = null;
   }

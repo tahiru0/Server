@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import Notification from './Notification.js';
 import notificationMessages from '../utils/notificationMessages.js';
 import softDeletePlugin from '../utils/softDelete.js';
+import fs from 'fs';
+import path from 'path';
 
 const taskSchema = new mongoose.Schema({
   name: {
@@ -53,6 +55,21 @@ const taskSchema = new mongoose.Schema({
       message: 'Người được giao task phải là một trong những sinh viên đã được chọn cho dự án'
     }
   },
+  materialFiles: [{
+    url: String,
+    uploadedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: 'materialFiles.uploaderModel'
+    },
+    uploaderModel: {
+      type: String,
+      enum: ['Student', 'CompanyAccount']
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   comment: {
     type: String,
     maxlength: [1000, 'Nhận xét không được vượt quá 1000 ký tự'],
@@ -63,7 +80,43 @@ const taskSchema = new mongoose.Schema({
   },
   submittedAt: Date,
   completedAt: Date,
+  shareSettings: {
+    isPublic: {
+      type: Boolean,
+      default: false
+    },
+    accessType: {
+      type: String,
+      enum: ['view', 'edit'], // Khi public thì có thể view hoặc edit cho tất cả
+      default: null
+    },
+    sharedWith: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        refPath: 'shareSettings.sharedWith.userModel'
+      },
+      userModel: {
+        type: String,
+        enum: ['Student', 'CompanyAccount']
+      },
+      accessType: {
+        type: String,
+        enum: ['view', 'edit'],
+        default: 'view'
+      },
+      sharedAt: {
+        type: Date,
+        default: Date.now
+      }
+    }]
+  }
 }, { timestamps: true });
+
+// Virtual field để lấy đường dẫn file
+taskSchema.virtual('materialFiles.filePath').get(function() {
+  const uploaderModel = this.uploaderModel.toLowerCase(); // student hoặc companyaccount
+  return `http://localhost:5000/uploads/${uploaderModel}/${this.uploadedBy}/task/${this._id}/${this.url}`;
+});
 
 taskSchema.methods.updateStatusIfOverdue = function () {
   const now = new Date();
@@ -138,5 +191,358 @@ taskSchema.pre('save', async function (next) {
 });
 
 taskSchema.plugin(softDeletePlugin);
+
+// Thêm các phương thức sau phần schema
+
+taskSchema.methods.addFile = async function(file, uploaderId, uploaderModel, permission) {
+  if (!permission.canAddFiles) {
+    throw new Error('Không có quyền thêm file');
+  }
+  try {
+    const fileUrl = file.filename;
+    this.materialFiles.push({
+      url: fileUrl,
+      uploadedBy: uploaderId,
+      uploaderModel: uploaderModel,
+      uploadedAt: new Date()
+    });
+    await this.save();
+    return {
+      message: 'Tải file lên thành công',
+      file: {
+        url: fileUrl,
+        uploadedBy: uploaderId,
+        uploaderModel: uploaderModel
+      }
+    };
+  } catch (error) {
+    throw new Error('Lỗi khi thêm file ');
+  }
+};
+
+taskSchema.methods.removeFile = async function(fileUrl, userId, userModel, permission) {
+  if (!permission.canRemoveFiles && 
+      !(permission.canRemoveOwnFiles && this.isFileOwner(fileUrl, userId))) {
+    throw new Error('Không có quyền xóa file này');
+  }
+  try {
+    const fileIndex = this.materialFiles.findIndex(
+      file => 
+        file.url === fileUrl && 
+        file.uploadedBy.toString() === userId.toString() &&
+        file.uploaderModel === userModel
+    );
+
+    if (fileIndex === -1) {
+      throw new Error('Không tìm thấy file hoặc bạn không có quyền xóa file này');
+    }
+
+    // Xóa file từ storage
+    const filePath = `/uploads/${userModel.toLowerCase()}/${userId}/task/${this._id}/${fileUrl}`;
+    try {
+      fs.unlinkSync(path.join(process.cwd(), 'public', filePath));
+    } catch (err) {
+      console.error('Lỗi khi xóa file từ storage');
+    }
+
+    // Xóa thông tin file từ database
+    this.materialFiles.splice(fileIndex, 1);
+    await this.save();
+
+    return {
+      message: 'Đã xóa file thành công'
+    };
+  } catch (error) {
+    throw new Error('Lỗi khi xóa file ');
+  }
+};
+
+taskSchema.methods.getFiles = async function() {
+  try {
+    const files = this.materialFiles.map(file => ({
+      url: `http://localhost:5000/uploads/${file.uploaderModel.toLowerCase()}/${file.uploadedBy}/task/${this._id}/${file.url}`,
+      uploadedBy: file.uploadedBy,
+      uploaderModel: file.uploaderModel,
+      uploadedAt: file.uploadedAt
+    }));
+
+    return {
+      taskId: this._id,
+      taskName: this.name,
+      files: files
+    };
+  } catch (error) {
+    throw new Error('Lỗi khi lấy danh sách file ' );
+  }
+};
+
+taskSchema.methods.getTaskWithFiles = async function() {
+  try {
+    const task = await this.populate([
+      {
+        path: 'project',
+        select: 'title company',
+        populate: {
+          path: 'company',
+          select: 'accounts logo' // Thêm logo của company
+        }
+      },
+      {
+        path: 'assignedTo',
+        select: 'name email avatar'
+      },
+      {
+        path: 'materialFiles.uploadedBy',
+        refPath: 'materialFiles.uploaderModel'
+      }
+    ]);
+
+    const formattedTask = {
+      ...task.toObject(),
+      assignedTo: {
+        _id: task.assignedTo._id,
+        name: task.assignedTo.name,
+        email: task.assignedTo.email,
+        avatar: task.assignedTo.avatar && !task.assignedTo.avatar.startsWith('http') 
+          ? `http://localhost:5000${task.assignedTo.avatar}`
+          : task.assignedTo.avatar
+      },
+      project: {
+        _id: task.project._id,
+        title: task.project.title,
+        company: {
+          name: task.project.company.name,
+          logo: task.project.company.logo && !task.project.company.logo.startsWith('http')
+            ? `http://localhost:5000${task.project.company.logo}`
+            : task.project.company.logo
+        }
+      },
+      materialFiles: task.materialFiles.map(file => {
+        let uploaderInfo;
+        if (file.uploaderModel === 'Student') {
+          uploaderInfo = {
+            _id: file.uploadedBy._id,
+            name: file.uploadedBy.name,
+            email: file.uploadedBy.email,
+            avatar: file.uploadedBy.avatar && !file.uploadedBy.avatar.startsWith('http')
+              ? `http://localhost:5000${file.uploadedBy.avatar}`
+              : file.uploadedBy.avatar
+          };
+        } else {
+          // Nếu là CompanyAccount, lấy thông tin từ company.accounts
+          const account = task.project.company.accounts.id(file.uploadedBy);
+          uploaderInfo = {
+            _id: account._id,
+            name: account.name,
+            email: account.email,
+            avatar: account.avatar && !account.avatar.startsWith('http')
+              ? `http://localhost:5000${account.avatar}`
+              : account.avatar
+          };
+        }
+
+        return {
+          url: `http://localhost:5000/uploads/${file.uploaderModel.toLowerCase()}/${file.uploadedBy._id}/task/${task._id}/${file.url}`,
+          uploadedBy: uploaderInfo,
+          uploaderModel: file.uploaderModel,
+          uploadedAt: file.uploadedAt
+        };
+      })
+    };
+
+    return formattedTask;
+  } catch (error) {
+    throw new Error('Lỗi khi lấy thông tin task và files: ' + error.message);
+  }
+};
+
+// Thêm vào sau các phương thức hiện có
+taskSchema.methods.updateShareSettings = async function(settings) {
+  // Khi chuyển sang private, accessType luôn là null
+  if (!settings.isPublic) {
+    settings.accessType = null;
+  }
+  
+  // Khi chuyển sang public mà không có accessType, mặc định là view
+  if (settings.isPublic && !settings.accessType) {
+    settings.accessType = 'view';
+  }
+  
+  this.shareSettings.isPublic = settings.isPublic;
+  this.shareSettings.accessType = settings.accessType;
+  await this.save();
+  return this.shareSettings;
+};
+
+taskSchema.methods.shareWithUser = async function(userId, userModel, accessType) {
+  const existingShare = this.shareSettings.sharedWith.find(
+    share => share.userId.toString() === userId.toString()
+  );
+
+  if (existingShare) {
+    existingShare.accessType = accessType;
+    existingShare.sharedAt = new Date();
+  } else {
+    this.shareSettings.sharedWith.push({
+      userId,
+      userModel,
+      accessType,
+      sharedAt: new Date()
+    });
+  }
+
+  await this.save();
+  return this.shareSettings;
+};
+
+taskSchema.methods.removeShare = async function(userId) {
+  this.shareSettings.sharedWith = this.shareSettings.sharedWith.filter(
+    share => share.userId.toString() !== userId.toString()
+  );
+  await this.save();
+  return this.shareSettings;
+};
+
+// Thêm phương thức kiểm tra CompanyAccount
+taskSchema.methods.isCompanyAccount = async function(userId) {
+  try {
+    const project = await mongoose.model('Project').findById(this.project)
+      .populate({
+        path: 'company',
+        select: 'accounts'
+      });
+
+    if (!project || !project.company) {
+      return false;
+    }
+
+    // Kiểm tra xem userId có thuộc company của project không
+    const account = project.company.accounts.id(userId);
+    return account ? true : false;
+
+  } catch (error) {
+    console.error('Lỗi khi kiểm tra CompanyAccount:', error);
+    return false;
+  }
+};
+
+// Cập nhật lại phương thức canAccess
+taskSchema.methods.canAccess = async function(userId, userModel) {
+  // Kiểm tra mentor - quyền cao nhất
+  if (userModel === 'CompanyAccount') {
+    const project = await mongoose.model('Project').findById(this.project);
+    if (project && project.mentor.toString() === userId.toString()) {
+      return 'admin';
+    }
+    
+    const isValidCompanyAccount = await this.isCompanyAccount(userId);
+    if (!isValidCompanyAccount) {
+      return null;
+    }
+  }
+  
+  // Kiểm tra sinh viên được giao task
+  if (userModel === 'Student' && this.assignedTo.toString() === userId.toString()) {
+    return 'edit';
+  }
+
+  // Kiểm tra cài đặt công khai
+  if (this.shareSettings.isPublic) {
+    return this.shareSettings.accessType;
+  }
+
+  // Private - chỉ người được share mới xem được
+  const share = this.shareSettings.sharedWith.find(
+    s => s.userId.toString() === userId.toString() && 
+        s.userModel === userModel
+  );
+  return share ? share.accessType : null;
+};
+
+// Thêm phương thức isMentor vào taskSchema
+taskSchema.methods.isMentor = async function(userId) {
+  try {
+    const project = await mongoose.model('Project').findById(this.project)
+      .populate({
+        path: 'company',
+        select: 'accounts'
+      });
+
+    if (!project || !project.company) {
+      return false;
+    }
+
+    // Kiểm tra xem userId có phải là mentor của dự án không
+    return project.mentor.toString() === userId.toString();
+  } catch (error) {
+    console.error('Lỗi khi kiểm tra quyền mentor:', error);
+    return false;
+  }
+};
+
+taskSchema.methods.checkPermission = async function(userId, userModel, action, role) {
+  // Nếu là mentor, cấp quyền admin trực tiếp
+  if (userModel === 'CompanyAccount' && role === 'mentor') {
+    const isMentor = await this.isMentor(userId);
+    if (isMentor) {
+      return {
+        canEditAll: true,
+        canEditStatus: true,
+        canAddFiles: true,
+        canRemoveFiles: true,
+        canAddComments: true,
+        canEditComments: true,
+        canEditFeedback: true,
+        canManageSharing: true,
+        canDeleteTask: true
+      };
+    }
+  }
+
+  const accessLevel = await this.canAccess(userId, userModel);
+  
+  switch(action) {
+    case 'view':
+      if (['view', 'edit', 'admin'].includes(accessLevel)) {
+        return {
+          canView: true,
+          canViewFiles: true,
+          canViewComments: true,
+          canViewStatus: true
+        };
+      }
+      return null;
+      
+    case 'edit':
+      if (accessLevel === 'edit') {
+        return {
+          canEditStatus: ['Assigned', 'Submitted'].includes(this.status),
+          canAddFiles: true,
+          canRemoveOwnFiles: true,
+          canAddComments: true,
+          canEditOwnComments: true,
+          canSubmitTask: this.canSubmit()
+        };
+      }
+      if (accessLevel === 'admin') {
+        return {
+          canEditAll: true,
+          canEditStatus: true,
+          canAddFiles: true,
+          canRemoveFiles: true,
+          canAddComments: true,
+          canEditComments: true,
+          canEditFeedback: true,
+          canManageSharing: true,
+          canDeleteTask: true
+        };
+      }
+      return null;
+
+    default:
+      return null;
+  }
+};
+
 const Task = mongoose.model('Task', taskSchema);
 export default Task;

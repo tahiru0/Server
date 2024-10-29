@@ -114,14 +114,12 @@ notificationSchema.pre('find', function() {
   if (!this.getQuery().hasOwnProperty('isDeleted')) {
     this.where({ isDeleted: false });
   }
-  console.log('Pre find hook:', this.getQuery());
 });
 
 notificationSchema.pre('findOne', function() {
   if (!this.getQuery().hasOwnProperty('isDeleted')) {
     this.where({ isDeleted: false });
   }
-  console.log('Pre findOne hook:', this.getQuery());
 });
 
 // Thêm middleware để xử lý cập nhật
@@ -134,7 +132,6 @@ notificationSchema.pre('findOneAndUpdate', function(next) {
             }
         });
     }
-    console.log('Pre findOneAndUpdate hook:', update);
     next();
 });
 
@@ -145,7 +142,6 @@ notificationSchema.pre('save', function(next) {
 
 notificationSchema.post('save', function(doc, next) {
   if (doc.isNew) {
-    console.log('Sending notification to stream:', doc);
     notificationStream.sendNotification(doc)
       .then(() => next())
       .catch(error => {

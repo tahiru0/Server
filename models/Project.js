@@ -606,7 +606,7 @@ projectSchema.statics.getPublicProjects = async function (query, filters = {}, p
   }
 
   if (filters.skills && filters.skills.length > 0) {
-    searchCriteria.requiredSkills = { $all: filters.skills };
+    searchCriteria.requiredSkills = { $in: filters.skills };  // Thay $all bằng $in để tối ưu hóa
   }
 
   const skip = (page - 1) * limit;

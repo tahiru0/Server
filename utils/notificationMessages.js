@@ -44,6 +44,20 @@ const notificationMessages = {
       statusUpdated: (taskName, newStatus) => `Trạng thái của task "${taskName}" đã được cập nhật thành **${newStatus}**.`,
       deadlineApproaching: (taskName, daysLeft) => `**Nhắc nhở:** Chỉ còn ${daysLeft} ngày nữa là đến hạn nộp task "${taskName}". Hãy hoàn thành sớm nhé!`,
       cannotSubmit: (taskName) => `**Rất tiếc!** Bạn không thể nộp task "${taskName}" vì đã quá hạn hoặc task đã được đánh giá.`,
+      shared: (taskName, accessType) => {
+        const accessText = accessType === 'edit' ? 'quyền chỉnh sửa' : 'quyền xem';
+        return `Bạn vừa được chia sẻ task **"${taskName}"** với ${accessText}.`;
+      },
+      madePublic: (taskName, accessType) => {
+        const accessText = accessType === 'edit' ? 'quyền chỉnh sửa' : 'quyền xem';
+        return `Task **"${taskName}"** vừa được công khai với ${accessText} cho tất cả thành viên trong dự án.`;
+      },
+      madePrivate: (taskName) => `Task **"${taskName}"** đã được chuyển về chế độ riêng tư.`,
+      shareRemoved: (taskName) => `Quyền truy cập của bạn vào task **"${taskName}"** đã bị thu hồi.`,
+      accessTypeChanged: (taskName, newAccessType) => {
+        const accessText = newAccessType === 'edit' ? 'quyền chỉnh sửa' : 'quyền xem';
+        return `Quyền truy cập của bạn vào task **"${taskName}"** đã được thay đổi thành ${accessText}.`;
+      }
   },
   survey: {
     newSurvey: (projectTitle) => `Bạn có một khảo sát mới cho dự án **"${projectTitle}"**. Hãy hoàn thành nó để giúp chúng tôi cải thiện trải nghiệm của bạn!`,

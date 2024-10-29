@@ -7,16 +7,16 @@ dotenv.config();
 
 export const getEmailConfig = async () => {
   const config = await Config.findOne();
-  if (config) {
+  if (config && config.email) {
     return {
-      service: config.emailService,
+      service: config.email.service,
       auth: {
-        user: config.emailUser,
-        pass: config.emailPass
+        user: config.email.user,
+        pass: config.email.pass
       },
-      host: config.emailHost,
-      port: config.emailPort,
-      senderName: config.senderName
+      host: config.email.host,
+      port: config.email.port,
+      senderName: config.email.senderName
     };
   }
   return {
@@ -59,7 +59,7 @@ export const sendEmail = async (to, subject, htmlContent, type = 'sent') => {
     });
 
     const mailOptions = {
-      from: `"${config.senderName}" <${config.auth.user}>`,
+      from: `"${config.email.senderName}" <${config.email.user}>`,
       to,
       subject,
       html: htmlContent,

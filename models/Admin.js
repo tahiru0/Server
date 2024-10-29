@@ -85,22 +85,30 @@ adminSchema.methods.checkPassword = async function(password) {
 // Cập nhật phương thức login
 adminSchema.statics.login = async function(username, password) {
   if (!username) {
-    throw new Error('Tên người dùng không được bỏ trống');
+    const error = new Error('Tên người dùng không được bỏ trống');
+    error.status = 400;
+    throw error;
   }
   if (!password) {
-    throw new Error('Mật khẩu không được bỏ trống');
+    const error = new Error('Mật khẩu không được bỏ trống');
+    error.status = 400;
+    throw error;
   }
 
   username = sanitizeString(username);
 
   const admin = await this.findOne({ username: username }).exec();
   if (!admin) {
-    throw new Error('Tên người dùng hoặc mật khẩu không đúng');
+    const error = new Error('Tên người dùng hoặc mật khẩu không đúng');
+    error.status = 400;
+    throw error;
   }
 
   const isMatch = await admin.checkPassword(password);
   if (!isMatch) {
-    throw new Error('Tên người dùng hoặc mật khẩu không đúng');
+    const error = new Error('Tên người dùng hoặc mật khẩu không đúng');
+    error.status = 400;
+    throw error;
   }
 
   return admin;

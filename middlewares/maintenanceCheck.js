@@ -3,13 +3,13 @@ import Config from '../models/Config.js';
 const maintenanceCheck = async (req, res, next) => {
   try {
     const config = await Config.findOne().lean();
-    if (config && config.maintenanceMode && config.maintenanceMode.isActive) {
+    if (config && config.maintenance && config.maintenance.isActive) {
       if (req.originalUrl.startsWith('/api/admin') || req.originalUrl === '/api/auth/login/admin') {
         return next();
       }
       return res.status(503).json({ 
         error: 'Maintenance', 
-        message: config.maintenanceMode.message || 'Hệ thống đang bảo trì. Vui lòng thử lại sau.'
+        message: config.maintenance.message || 'Hệ thống đang bảo trì. Vui lòng thử lại sau.'
       });
     }
     next();

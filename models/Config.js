@@ -1,32 +1,38 @@
 import mongoose from 'mongoose';
 
 const configSchema = new mongoose.Schema({
-  emailService: {
-    type: String,
-    enum: ['gmail', 'outlook', 'custom'],
-    required: true
+  email: {
+    service: {
+      type: String,
+      enum: ['gmail', 'outlook', 'custom'],
+      required: [function() { return this.email && this.email.user; }, 'Dịch vụ email là bắt buộc khi cấu hình email']
+    },
+    user: {
+      type: String,
+      required: [function() { return this.email && this.email.service; }, 'Tên người dùng email là bắt buộc khi cấu hình email']
+    },
+    pass: {
+      type: String,
+      required: [function() { return this.email && this.email.user; }, 'Mật khẩu email là bắt buộc khi cấu hình email']
+    },
+    host: {
+      type: String,
+      required: [function() { return this.email && this.email.service === 'custom'; }, 'Host là bắt buộc khi sử dụng dịch vụ email tùy chỉnh']
+    },
+    port: {
+      type: Number,
+      required: [function() { return this.email && this.email.service === 'custom'; }, 'Port là bắt buộc khi sử dụng dịch vụ email tùy chỉnh']
+    },
+    senderName: {
+      type: String,
+      required: [function() { return this.email && this.email.user; }, 'Tên người gửi là bắt buộc khi cấu hình email']
+    }
   },
-  emailUser: {
-    type: String,
-    required: true
-  },
-  emailPass: {
-    type: String,
-    required: true
-  },
-  emailHost: {
-    type: String,
-    required: function() { return this.emailService === 'custom'; }
-  },
-  emailPort: {
-    type: Number,
-    required: function() { return this.emailService === 'custom'; }
-  },
-  senderName: {
-    type: String,
-    required: true
-  },
-  backupConfig: {
+  backup: {
+    isAutoBackup: {
+      type: Boolean,
+      default: false
+    },
     schedule: {
       frequency: {
         type: String,
@@ -46,16 +52,22 @@ const configSchema = new mongoose.Schema({
     },
     password: {
       type: String,
-      required: true
+      required: [function() { return this.backup && this.backup.isAutoBackup; }, 'Mật khẩu sao lưu là bắt buộc khi bật tự động sao lưu']
     },
     retentionPeriod: {
       type: Number,
       default: 30
     }
   },
-  maintenanceMode: {
-    isActive: { type: Boolean, default: false },
-    message: { type: String, default: 'Hệ thống đang bảo trì. Vui lòng thử lại sau.' }
+  maintenance: {
+    isActive: { 
+      type: Boolean, 
+      default: false 
+    },
+    message: { 
+      type: String, 
+      default: 'Hệ thống đang bảo trì. Vui lòng thử lại sau.' 
+    }
   },
   lastRestore: {
     backupFileName: String,

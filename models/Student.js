@@ -375,34 +375,9 @@ StudentSchema.path('studentId').validate(async function (value) {
     return value.length >= 5 && value.length <= 20;
 }, 'Mã số sinh viên phải có độ dài từ 5 đến 20 ký tự');
 
-// Thêm phương thức để tạo mật khẩu mặc định
-StudentSchema.statics.generatePasswordFromRule = function (passwordRule, dateOfBirth) {
-    if (!passwordRule || !passwordRule.template) {
-        throw new Error('Quy tắc mật khẩu không hợp lệ.');
-    }
-
-    let password = passwordRule.template;
-
-    if (dateOfBirth) {
-        const date = new Date(dateOfBirth);
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
-        const formattedDateOfBirth = `${day}${month}${year}`;
-
-        password = password.replace('${ngaysinh}', formattedDateOfBirth);
-    }
-
-    return password;
-};
-
 StudentSchema.methods.generateDefaultPassword = async function () {
-    const school = await mongoose.model('School').findById(this.school);
-    if (!school || !school.studentApiConfig || !school.studentApiConfig.passwordRule) {
-        throw new Error('Quy tắc mật khẩu không hợp lệ hoặc chưa được cấu hình.');
-    }
-
-    return this.constructor.generatePasswordFromRule(school.studentApiConfig.passwordRule, this.dateOfBirth);
+    // Thay thế bằng một phương thức tạo mật khẩu mặc định đơn giản
+    return Math.random().toString(36).slice(-8);
 };
 
 // Thêm phương thức để so sánh mật khẩu
@@ -883,6 +858,7 @@ export default mongoose.model('Student', StudentSchema);
  *           type: string
  *           description: Token làm mới để cấp lại access token
  */
+
 
 
 

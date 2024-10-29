@@ -28,7 +28,7 @@ import {
   analyzeBackup,
   encryptPassword,
   getBackupConfig,
-  ensureBackupDir // Thêm dòng này
+  ensureBackupDir
 } from '../utils/backup.js';
 import { generateRandomPassword } from '../utils/passwordGenerator.js';
 import nodemailer from 'nodemailer';
@@ -513,46 +513,33 @@ router.get('/email-config', authenticateAdmin, async (req, res, next) => {
 // Cập nhật cấu hình email
 router.post('/email-config', authenticateAdmin, async (req, res, next) => {
   try {
-    const { emailService, emailUser, emailPass, emailHost, emailPort, senderName } = req.body;
+    const { service, user, pass, host, port, senderName } = req.body;
     let config = await Config.findOne();
     
     if (config) {
-      config.emailService = emailService;
-      config.emailUser = emailUser;
-      config.emailPass = emailPass;
-      config.emailHost = emailHost;
-      config.emailPort = emailPort;
-      config.senderName = senderName;
+      config.email = { service, user, pass, host, port, senderName };
     } else {
       config = new Config({
-        emailService,
-        emailUser,
-        emailPass,
-        emailHost,
-        emailPort,
-        senderName
+        email: { service, user, pass, host, port, senderName }
       });
     }
-
     await config.save();
 
-    // Cập nhật transporter với cấu hình mới
-    const newConfig = await getEmailConfig();
+    const newConfig = config.email;
     const transporter = nodemailer.createTransport({
       service: newConfig.service,
       host: newConfig.host,
       port: newConfig.port,
       secure: newConfig.port === 465,
       auth: {
-        user: newConfig.auth.user,
-        pass: newConfig.auth.pass
+        user: newConfig.user,
+        pass: newConfig.pass
       }
     });
 
-    // Kiểm tra kết nối
     try {
       await transporter.verify();
-      res.json({ message: 'Cấu hình email đã được cập nhật và kiểm tra thành công', config });
+      res.json({ message: 'Cấu hình email đã được cập nhật và kiểm tra thành công', config: config.email });
     } catch (error) {
       res.status(400).json({ message: 'Cấu hình email không hợp lệ', error: error.message });
     }
@@ -565,21 +552,24 @@ router.post('/email-config', authenticateAdmin, async (req, res, next) => {
 router.post('/send-test-email', authenticateAdmin, async (req, res, next) => {
   try {
     const { to, subject, htmlContent } = req.body;
-    const config = await getEmailConfig();
+    const config = await Config.findOne();
+    if (!config || !config.email) {
+      return res.status(400).json({ message: 'Cấu hình email chưa được thiết lập' });
+    }
     
     const transporter = nodemailer.createTransport({
-      service: config.service,
-      host: config.host,
-      port: config.port,
-      secure: config.port === 465,
+      service: config.email.service,
+      host: config.email.host,
+      port: config.email.port,
+      secure: config.email.port === 465,
       auth: {
-        user: config.auth.user,
-        pass: config.auth.pass
+        user: config.email.user,
+        pass: config.email.pass
       }
     });
 
     const mailOptions = {
-      from: `"${config.senderName}" <${config.auth.user}>`,
+      from: `"${config.email.senderName}" <${config.email.user}>`,
       to,
       subject,
       html: htmlContent
@@ -798,27 +788,42 @@ router.post('/upload/projects', authenticateAdmin, upload1.single('file'), async
 // Thiết lập và bật/tắt tự động backup
 router.post('/backup-config', authenticateAdmin, async (req, res, next) => {
   try {
-    const { isAutoBackup, schedule, password } = req.body;
-    const encryptedPassword = encryptPassword(password);
+    const { isAutoBackup, schedule, password, retentionPeriod } = req.body;
+    
+    let encryptedPassword;
+    if (password) {
+      encryptedPassword = encryptPassword(password);
+    } else {
+      // Nếu không có mật khẩu mới, giữ nguyên mật khẩu cũ
+      const currentConfig = await Config.findOne();
+      encryptedPassword = currentConfig.backupConfig.password;
+    }
+
     const config = await Config.findOneAndUpdate(
       {},
       { 
         $set: { 
-          backupConfig: { 
+          backup: { 
             isAutoBackup,
             schedule,
-            password: encryptedPassword
+            password: encryptedPassword,
+            retentionPeriod
           } 
         } 
       },
       { new: true, upsert: true }
     );
-    if (isAutoBackup) {
-      await scheduleBackup();
-    } else {
-      cancelScheduledBackup();
-    }
-    res.json({ message: 'Cấu hình sao lưu đã được cập nhật', config: config.backupConfig });
+    
+    // Gọi scheduleBackup để cập nhật hoặc dừng cron job
+    await scheduleBackup();
+    
+    // Loại bỏ mật khẩu khỏi response
+    const { password: _, ...safeConfig } = config.backup.toObject();
+    
+    res.json({ 
+      message: 'Cấu hình sao lưu đã được cập nhật', 
+      config: safeConfig 
+    });
   } catch (error) {
     next(error);
   }
@@ -857,8 +862,18 @@ router.post('/restore-backup', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Tên file sao lưu và mật khẩu là bắt buộc' });
     }
 
-    const result = await restoreBackup(backupFileName, password);
-    res.json(result);
+    // Kiểm tra xem file có phải là .bson hay không
+    const isBsonFile = backupFileName.endsWith('.bson');
+
+    if (isBsonFile) {
+      // Sử dụng hàm restoreBackup cho file .bson
+      const result = await restoreBackup(backupFileName, password);
+      res.json(result);
+    } else {
+      // Giữ nguyên logic cũ cho file .zip
+      const result = await restoreBackup(backupFileName, password);
+      res.json(result);
+    }
   } catch (error) {
     if (error.message === 'Mật khẩu không đúng') {
       res.status(400).json({ message: 'Mật khẩu không đúng' });
@@ -876,8 +891,18 @@ router.post('/analyze-backup', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Tên file sao lưu và mật khẩu là bắt buộc' });
     }
 
-    const analysis = await analyzeBackup(backupFileName, password);
-    res.json(analysis);
+    // Kiểm tra xem file có phải là .bson hay không
+    const isBsonFile = backupFileName.endsWith('.bson');
+
+    if (isBsonFile) {
+      // Thực hiện phân tích cho file .bson
+      const analysis = await analyzeBackup(backupFileName, password);
+      res.json(analysis);
+    } else {
+      // Giữ nguyên logic cũ cho file .zip
+      const analysis = await analyzeBackup(backupFileName, password);
+      res.json(analysis);
+    }
   } catch (error) {
     if (error.message === 'Mật khẩu không đúng') {
       res.status(400).json({ message: 'Mật khẩu không đúng' });

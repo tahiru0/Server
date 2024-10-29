@@ -175,7 +175,6 @@ const loginAdmin = async (req, res) => {
       refreshToken
     });
   } catch (error) {
-    console.error('Lỗi trong quá trình đăng nhập:', error);
     if (!res.headersSent) {
       await saveLoginHistory(req, null, 'Admin', false, error.message);
       const { status, message } = handleError(error);
@@ -184,7 +183,8 @@ const loginAdmin = async (req, res) => {
   } finally {
     if (!loginSuccess && !res.headersSent) {
       await saveLoginHistory(req, null, 'Admin', false, 'Đăng nhập thất bại');
-      return res.status(500).json({ message: 'Đã xảy ra lỗi trong quá trình đăng nhập.' });
+      const { status, message } = handleError(new Error('Đăng nhập thất bại'));
+      return res.status(status).json({ message });
     }
   }
 };
@@ -286,7 +286,6 @@ const loginCompany = async (req, res) => {
       refreshToken
     });
   } catch (error) {
-    console.error('Lỗi trong quá trình đăng nhập công ty:', error);
     if (!res.headersSent) {
       await saveLoginHistory(req, account, 'CompanyAccount', false, error.message);
       const { status, message } = handleError(error);
@@ -295,7 +294,8 @@ const loginCompany = async (req, res) => {
   } finally {
     if (!loginSuccess && !res.headersSent) {
       await saveLoginHistory(req, account, 'CompanyAccount', false, 'Đăng nhập thất bại');
-      return res.status(500).json({ message: 'Đã xảy ra lỗi trong quá trình đăng nhập.' });
+      const { status, message } = handleError(new Error('Đăng nhập thất bại'));
+      return res.status(status).json({ message });
     }
   }
 };
@@ -399,7 +399,6 @@ const loginStudent = async (req, res) => {
     }
 
     const student = await Student.findBySchoolAndStudentId(schoolId, studentId);
-    console.log(`Result of finding student: ${JSON.stringify(student)}`);
 
     if (!student) {
       return res.status(400).json({ message: 'Thông tin đăng nhập không chính xác.' });

@@ -5,6 +5,7 @@ import gradient from 'gradient-string';
 import configureMiddleware from './config/middleware.js';
 import configureRoutes from './config/routes.js';
 import connectDatabase from './config/database.js';
+import { initializeBackupSchedule } from './utils/backup.js';
 
 dotenv.config();
 
@@ -17,9 +18,16 @@ configureMiddleware(app);
 // Cấu hình routes
 configureRoutes(app);
 
+// Phục vụ tệp HTML cho trang chủ từ thư mục assets
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/assets/index.html');
+});
+
 // Kết nối database
 connectDatabase()
-  .then(() => {
+  .then(async () => {
+    await initializeBackupSchedule();
+
     app.listen(port, () => {
       console.log(gradient.cristal(`Server đang chạy ở cổng ${port}`));
       console.log(`Mở trang Swagger UI tại: http://localhost:${port}/api-docs`);

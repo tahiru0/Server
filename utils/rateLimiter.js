@@ -84,7 +84,7 @@ export const apiLimiter = createMultiLevelLimiter([
 ]);
 
 export const loginLimiter = rateLimit({
-  windowMs: 2 * 60 * 1000, // 2 phút
+  windowMs: 1 * 60 * 1000, // 2 phút
   max: 10, // Giới hạn 10 lần đăng nhập trong 2 phút
   standardHeaders: true,
   legacyHeaders: false,
@@ -95,7 +95,7 @@ export const loginLimiter = rateLimit({
   },
   handler: (req, res) => {
     res.status(429).json({
-      message: 'Quá nhiều lần đăng nhập. Vui lòng thử lại sau 2 phút.'
+      message: 'Quá nhiều lần đăng nhập. Vui lòng thử lại sau 1 phút.'
     });
   },
 });
