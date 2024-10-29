@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import webpack from 'webpack';
 import fs from 'fs';
+import CopyWebpackPlugin from 'copy-webpack-plugin';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,11 @@ export default {
   plugins: [
     new webpack.IgnorePlugin({
       resourceRegExp: /^(mock-aws-s3|aws-sdk|nock)$/
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: 'assets', to: 'assets' }
+      ]
     }),
     {
       apply: (compiler) => {
