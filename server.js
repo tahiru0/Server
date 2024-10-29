@@ -6,8 +6,13 @@ import configureMiddleware from './config/middleware.js';
 import configureRoutes from './config/routes.js';
 import connectDatabase from './config/database.js';
 import { initializeBackupSchedule } from './utils/backup.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -20,7 +25,7 @@ configureRoutes(app);
 
 // Phục vụ tệp HTML cho trang chủ từ thư mục assets
 app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/assets/index.html');
+  res.sendFile(path.resolve(__dirname, 'assets', 'index.html'));
 });
 
 // Kết nối database
