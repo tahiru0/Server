@@ -1,12 +1,12 @@
 {
-  "type": "module",
   "name": "server",
   "version": "1.0.0",
+  "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node --experimental-modules dist/server.js",
-    "build": "webpack --config webpack.config.mjs",
-    "dev": "nodemon --experimental-modules server.js",
+    "start": "node dist/server.js",
+    "build": "webpack --config webpack.config.cjs",
+    "dev": "nodemon server.js",
     "debug": "node --inspect-brk server.js"
   },
   "keywords": [],

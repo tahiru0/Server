@@ -258,21 +258,106 @@ router.get('/student-tasks', authenticateStudent, async (req, res) => {
 });
 
 // Xem task
-router.get('/:taskId', optionalAuthenticate(), checkTaskPermission('view'), async (req, res) => {
-  // Chỉ trả về các thông tin mà user có quyền xem
-  const permission = req.taskPermission;
-  const task = req.task;
-  
-  const response = {
-    ...task.toObject(),
-    canEditStatus: permission.canEditStatus,
-    canAddFiles: permission.canAddFiles,
-    canRemoveFiles: permission.canRemoveFiles,
-    canAddComments: permission.canAddComments,
-    canEditComments: permission.canEditComments
-  };
+router.get('/:taskId', optionalAuthenticate(), async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.taskId)
+      .populate({
+        path: 'project',
+        select: 'title company mentor',
+        populate: {
+          path: 'company',
+          select: 'name logo accounts'
+        }
+      })
+      .populate('assignedTo', 'name email avatar')
+      .populate({
+        path: 'materialFiles.uploadedBy',
+        refPath: 'materialFiles.uploaderModel',
+        select: 'name email avatar'
+      });
 
-  res.json(response);
+    if (!task) {
+      return res.status(404).json({ message: 'Không tìm thấy task' });
+    }
+
+    // Debug để xem thông tin user
+    console.log('User info:', {
+      id: req.user?._id,
+      model: req.user?.model,
+      role: req.user?.role
+    });
+
+    // Kiểm tra xem user hiện tại có phải là mentor của project không
+    let isMentor = false;
+    if (req.user?.model === 'CompanyAccount' && req.user?.role === 'mentor') {
+      isMentor = task.project.mentor.toString() === req.user._id.toString();
+      console.log('Is Mentor check:', isMentor); // Debug mentor check
+    }
+
+    // Lấy permissions dựa trên vai trò
+    const permissions = await task.checkPermission(
+      req.user?._id,
+      req.user?.model,
+      'edit',
+      isMentor ? 'mentor' : req.user?.role
+    );
+
+    console.log('Final permissions:', permissions); // Debug permissions
+
+    // Format response
+    const response = {
+      _id: task._id,
+      name: task.name,
+      description: task.description,
+      deadline: task.deadline,
+      status: task.status,
+      project: {
+        _id: task.project._id,
+        title: task.project.title,
+        companyName: task.project.company?.name,
+        companyLogo: task.project.company?.logo && !task.project.company.logo.startsWith('http')
+          ? `http://localhost:5000${task.project.company.logo}`
+          : task.project.company.logo
+      },
+      assignedTo: {
+        _id: task.assignedTo._id,
+        name: task.assignedTo.name,
+        email: task.assignedTo.email,
+        avatar: task.assignedTo.avatar && !task.assignedTo.avatar.startsWith('http')
+          ? `http://localhost:5000${task.assignedTo.avatar}`
+          : task.assignedTo.avatar
+      },
+      materialFiles: task.materialFiles.map(file => ({
+        url: `http://localhost:5000/uploads/${file.uploaderModel.toLowerCase()}/${file.uploadedBy._id}/task/${task._id}/${file.url}`,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        uploadedBy: {
+          _id: file.uploadedBy._id,
+          name: file.uploadedBy.name,
+          email: file.uploadedBy.email,
+          avatar: file.uploadedBy.avatar && !file.uploadedBy.avatar.startsWith('http')
+            ? `http://localhost:5000${file.uploadedBy.avatar}`
+            : file.uploadedBy.avatar
+        },
+        uploaderModel: file.uploaderModel,
+        uploadedAt: file.uploadedAt
+      })),
+      comment: task.comment,
+      feedback: task.feedback,
+      submittedAt: task.submittedAt,
+      completedAt: task.completedAt,
+      shareSettings: task.shareSettings,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      permissions: permissions
+    };
+
+    res.json(response);
+  } catch (error) {
+    const { status, message } = handleError(error);
+    res.status(status).json({ message });
+  }
 });
 
 // Thêm file
@@ -382,11 +467,18 @@ router.put('/:taskId/share-settings', optionalAuthenticate(), checkTaskPermissio
   }
 });
 
+// Share task
 router.post('/:taskId/share', optionalAuthenticate(), checkTaskPermission('admin'), async (req, res) => {
   try {
     const { userId, userModel, accessType } = req.body;
 
     // Validate input
+    if (!userId || !userModel || !accessType) {
+      return res.status(400).json({
+        message: 'Thiếu thông tin bắt buộc: userId, userModel, accessType'
+      });
+    }
+
     if (!['Student', 'CompanyAccount'].includes(userModel)) {
       return res.status(400).json({
         message: 'userModel không hợp lệ. Chỉ chấp nhận: Student, CompanyAccount'
@@ -399,27 +491,11 @@ router.post('/:taskId/share', optionalAuthenticate(), checkTaskPermission('admin
       });
     }
 
-    // Nếu share cho CompanyAccount, kiểm tra xem có thuộc cùng công ty không
-    if (userModel === 'CompanyAccount') {
-      const isValidCompanyAccount = await req.task.isCompanyAccount(userId);
-      if (!isValidCompanyAccount) {
-        return res.status(403).json({
-          message: 'Chỉ có thể share cho tài khoản trong cùng công ty'
-        });
-      }
-    }
-
-    // Nếu share cho Student, kiểm tra xem có trong project không
-    if (userModel === 'Student') {
-      const project = await Project.findById(req.task.project);
-      const isStudentInProject = project.selectedApplicants.some(
-        app => app.studentId.toString() === userId.toString()
-      );
-      if (!isStudentInProject) {
-        return res.status(403).json({
-          message: 'Chỉ có thể share cho sinh viên trong cùng project'
-        });
-      }
+    // Kiểm tra quyền share
+    try {
+      await req.task.canShareWith(userId, userModel);
+    } catch (error) {
+      return res.status(403).json({ message: error.message });
     }
 
     const updatedShare = await req.task.shareWithUser(userId, userModel, accessType);
@@ -434,7 +510,10 @@ router.post('/:taskId/share', optionalAuthenticate(), checkTaskPermission('admin
       relatedId: req.task._id
     });
 
-    res.json(updatedShare);
+    res.json({
+      message: 'Chia sẻ task thành công',
+      shareSettings: updatedShare
+    });
   } catch (error) {
     const { status, message } = handleError(error);
     res.status(status).json({ message });

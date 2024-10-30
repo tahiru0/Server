@@ -23,6 +23,22 @@ const notificationMessages = {
       notRecruiting: (projectTitle) => `**Rất tiếc,** dự án **"${projectTitle}"** hiện đang tạm ngưng tuyển dụng. ừng lo lắng, hãy theo dõi để không bỏ lỡ cơ hội trong tương lai nhé!`,
       projectUpdated: (projectTitle) => `**Dự án "${projectTitle}"** vừa có cập nhật mới.`,
       studentAdded: (projectTitle) => `**Chúc mừng!** Bạn đã được thêm vào dự án **"${projectTitle}"**. Hãy chuẩn bị tinh thần để bắt đầu hành trình mới!`,
+      recruitmentClosed: (projectTitle) => `**Thông báo quan trọng!** Quá trình tuyển dụng cho dự án **"${projectTitle}"** đã kết thúc. Tất cả ứng viên sẽ được thông báo về kết quả trong thời gian sớm nhất.`,
+      applicationInReview: (projectTitle) => `**Đơn ứng tuyển của bạn** cho dự án **"${projectTitle}"** đang được xem xét. Chúng tôi sẽ thông báo kết quả sớm nhất!`,
+      applicationRejectedWithFeedback: (projectTitle, feedback) => `Rất tiếc, đơn ứng tuyển của bạn cho dự án **"${projectTitle}"** chưa được chấp nhận. 
+      \n**Phản hồi từ mentor:** ${feedback}
+      \nĐừng nản lòng, hãy cải thiện và thử lại với các cơ hội khác!`,
+      projectStatusChanged: (projectTitle, newStatus) => `Trạng thái của dự án **"${projectTitle}"** đã được cập nhật thành **${newStatus}**.`,
+      projectCompleted: (projectTitle) => `**Chúc mừng!** Dự án **"${projectTitle}"** đã hoàn thành thành công. Cảm ơn sự đóng góp của bạn!`,
+      projectExtended: (projectTitle, newEndDate) => `Thời gian của dự án **"${projectTitle}"** đã được gia hạn đến **${new Date(newEndDate).toLocaleDateString('vi-VN')}**.`,
+      maxApplicantsReached: (projectTitle) => `Dự án **"${projectTitle}"** đã đạt số lượng ứng viên tối đa. Quá trình tuyển dụng sẽ sớm kết thúc.`,
+      applicationDeadlineReminder: (projectTitle, daysLeft) => `**Nhắc nhở:** Chỉ còn **${daysLeft}** ngày nữa là kết thúc thời hạn ứng tuyển dự án **"${projectTitle}"**.`,
+      studentPerformanceReview: (projectTitle) => `Mentor đã đánh giá hiệu suất của bạn trong dự án **"${projectTitle}"**. Hãy xem ngay để biết thêm chi tiết!`,
+      weeklyReportReminder: (projectTitle) => `**Nhắc nhở:** Đã đến thời gian nộp báo cáo tuần cho dự án **"${projectTitle}"**. Hãy hoàn thành báo cáo của bạn!`,
+      projectMilestoneCompleted: (projectTitle, milestone) => `**Chúc mừng!** Dự án **"${projectTitle}"** đã hoàn thành cột mốc quan trọng: **${milestone}**.`,
+      projectScheduleChanged: (projectTitle) => `Lịch làm việc của dự án **"${projectTitle}"** đã được cập nhật. Vui lòng kiểm tra để biết thêm chi tiết.`,
+      projectFeedbackAvailable: (projectTitle) => `Có phản hồi mới về hiệu suất của bạn trong dự án **"${projectTitle}"**. Hãy xem ngay!`,
+      projectDocumentationUpdated: (projectTitle) => `Tài liệu của dự án **"${projectTitle}"** vừa được cập nhật. Hãy xem lại để nắm rõ những thay đổi mới!`
   },
   task: {
       overdue: (taskName) => `**Task "${taskName}"** đã quá hạn. Hãy hoàn thành nó sớm nhất có thể!`,

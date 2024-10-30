@@ -190,6 +190,11 @@ const SchoolSchema = new Schema({
         type: String,
         match: [/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/, 'Vui lòng nhập URL hợp lệ']
     },
+    studentApiConfig: {
+        passwordRule: {
+            template: { type: String, default: '${ngaysinh}' }
+        }
+    },
     logo: { type: String },
     faculties: [FacultySchema],
     foundedYear: {

@@ -57,6 +57,9 @@ const taskSchema = new mongoose.Schema({
   },
   materialFiles: [{
     url: String,
+    originalname: String,
+    mimetype: String,
+    size: Number,
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,
       refPath: 'materialFiles.uploaderModel'
@@ -481,66 +484,148 @@ taskSchema.methods.isMentor = async function(userId) {
 };
 
 taskSchema.methods.checkPermission = async function(userId, userModel, action, role) {
-  // Nếu là mentor, cấp quyền admin trực tiếp
+  const permissions = [];
+
+  // Nếu là mentor
   if (userModel === 'CompanyAccount' && role === 'mentor') {
     const isMentor = await this.isMentor(userId);
     if (isMentor) {
-      return {
-        canEditAll: true,
-        canEditStatus: true,
-        canAddFiles: true,
-        canRemoveFiles: true,
-        canAddComments: true,
-        canEditComments: true,
-        canEditFeedback: true,
-        canManageSharing: true,
-        canDeleteTask: true
-      };
+      return [
+        'view',
+        'viewFiles',
+        'viewComments',
+        'viewStatus',
+        'editAll',
+        'editStatus',
+        'addFiles',
+        'removeFiles',
+        'addComments',
+        'editComments',
+        'editFeedback',
+        'manageSharing',
+        'deleteTask'
+      ];
     }
   }
 
-  const accessLevel = await this.canAccess(userId, userModel);
-  
-  switch(action) {
-    case 'view':
-      if (['view', 'edit', 'admin'].includes(accessLevel)) {
-        return {
-          canView: true,
-          canViewFiles: true,
-          canViewComments: true,
-          canViewStatus: true
-        };
-      }
-      return null;
-      
-    case 'edit':
-      if (accessLevel === 'edit') {
-        return {
-          canEditStatus: ['Assigned', 'Submitted'].includes(this.status),
-          canAddFiles: true,
-          canRemoveOwnFiles: true,
-          canAddComments: true,
-          canEditOwnComments: true,
-          canSubmitTask: this.canSubmit()
-        };
-      }
-      if (accessLevel === 'admin') {
-        return {
-          canEditAll: true,
-          canEditStatus: true,
-          canAddFiles: true,
-          canRemoveFiles: true,
-          canAddComments: true,
-          canEditComments: true,
-          canEditFeedback: true,
-          canManageSharing: true,
-          canDeleteTask: true
-        };
-      }
-      return null;
+  // Nếu là sinh viên được giao task
+  if (userModel === 'Student' && this.assignedTo.toString() === userId.toString()) {
+    const studentPermissions = [
+      'view',
+      'viewFiles',
+      'viewComments',
+      'viewStatus',
+      'addFiles',
+      'removeOwnFiles',
+      'addComments',
+      'editOwnComments'
+    ];
 
-    default:
-      return null;
+    if (['Assigned', 'Overdue'].includes(this.status)) {
+      studentPermissions.push('editStatus');
+    }
+    
+    if (this.canSubmit()) {
+      studentPermissions.push('submitTask');
+    }
+
+    return studentPermissions;
+  }
+
+  // Kiểm tra quyền từ share settings
+  const sharedPermission = this.shareSettings.sharedWith.find(
+    share => share.userId.toString() === userId.toString() && 
+            share.userModel === userModel
+  );
+
+  if (sharedPermission) {
+    const sharedPermissions = [
+      'view',
+      'viewFiles',
+      'viewComments',
+      'viewStatus'
+    ];
+
+    if (sharedPermission.accessType === 'edit') {
+      sharedPermissions.push(
+        'addFiles',
+        'removeOwnFiles',
+        'addComments',
+        'editOwnComments'
+      );
+    }
+
+    return sharedPermissions;
+  }
+
+  // Nếu là thành viên công ty
+  if (userModel === 'CompanyAccount') {
+    const isCompanyMember = await this.isCompanyAccount(userId);
+    if (isCompanyMember) {
+      return [
+        'view',
+        'viewFiles',
+        'viewComments',
+        'viewStatus',
+        'viewAll'
+      ];
+    }
+  }
+
+  // Nếu task là public
+  if (this.shareSettings.isPublic) {
+    const publicPermissions = [
+      'view',
+      'viewFiles',
+      'viewComments',
+      'viewStatus'
+    ];
+
+    if (this.shareSettings.accessType === 'edit') {
+      publicPermissions.push(
+        'addFiles',
+        'removeOwnFiles',
+        'addComments',
+        'editOwnComments'
+      );
+    }
+
+    return publicPermissions;
+  }
+
+  // Nếu không có quyền gì thì trả về mảng rỗng
+  return [];
+};
+
+taskSchema.methods.canShareWith = async function(targetUserId, targetUserModel) {
+  try {
+    const project = await mongoose.model('Project').findById(this.project);
+    
+    if (!project) {
+      throw new Error('Không tìm thấy dự án');
+    }
+
+    // Kiểm tra share cho CompanyAccount
+    if (targetUserModel === 'CompanyAccount') {
+      const isValidCompanyAccount = await this.isCompanyAccount(targetUserId);
+      if (!isValidCompanyAccount) {
+        throw new Error('Chỉ có thể share cho tài khoản trong cùng công ty');
+      }
+    }
+
+    // Kiểm tra share cho Student
+    if (targetUserModel === 'Student') {
+      const isStudentInProject = project.selectedApplicants.some(
+        app => app.studentId.toString() === targetUserId.toString()
+      );
+      if (!isStudentInProject) {
+        throw new Error('Chỉ có thể share cho sinh viên trong cùng project');
+      }
+    }
+
+    return true;
+  } catch (error) {
+    throw error;
   }
 };
 

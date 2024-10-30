@@ -1,28 +1,18 @@
-// webpack.config.mjs
-import path from 'path';
-import webpack from 'webpack';
-import fs from 'fs';
-import CopyWebpackPlugin from 'copy-webpack-plugin';
-import { fileURLToPath } from 'url';
+const path = require('path');
+const webpack = require('webpack');
+const fs = require('fs');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export default {
+module.exports = {
   target: 'node',
   mode: 'production',
   entry: './server.js',
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'server.js',
-    library: {
-      type: 'module'
-    },
-    chunkFormat: 'module'
+    // Xóa library config vì không cần thiết cho CommonJS
   },
-  experiments: {
-    outputModule: true
-  },
+  // Xóa experiments vì không cần thiết cho CommonJS
   module: {
     rules: [
       {
@@ -53,17 +43,15 @@ export default {
     {
       apply: (compiler) => {
         compiler.hooks.afterEmit.tap('CopyEnvFilesAndCreatePackageJson', (compilation) => {
-          // Sao chép .env và .env.example vào thư mục dist
           fs.copyFileSync('.env', path.join(compiler.options.output.path, '.env'));
           fs.copyFileSync('.env.example', path.join(compiler.options.output.path, '.env.example'));
           
-          // Tạo package.json mới trong thư mục dist
           const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           const newPackageJson = {
             name: packageJson.name,
             version: packageJson.version,
             main: 'server.js',
-            type: 'module',
+            // Xóa type module vì chúng ta đang sử dụng CommonJS
             scripts: {
               start: 'node server.js'
             }
@@ -84,4 +72,4 @@ export default {
     }
   },
   externalsPresets: { node: true }
-};
+}; 

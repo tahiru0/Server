@@ -768,13 +768,21 @@ router.get('/current-project/:projectId', authenticateStudent, async (req, res) 
     }
 
     const project = await Project.findById(projectId)
-      .populate('company', 'name')
-      .populate('mentor', 'name email')
+      .populate('company')
       .populate('relatedMajors', 'name')
       .populate('requiredSkills', 'name');
 
     if (!project) {
       return res.status(404).json({ message: 'Không tìm thấy dự án.' });
+    }
+
+    // Tìm thông tin mentor từ company.accounts
+    const mentor = project.company.accounts.find(
+      account => account._id.toString() === project.mentor.toString()
+    );
+
+    if (!mentor) {
+      return res.status(404).json({ message: 'Không tìm thấy thông tin mentor.' });
     }
 
     const projectDetails = {
@@ -787,8 +795,8 @@ router.get('/current-project/:projectId', authenticateStudent, async (req, res) 
       companyName: project.company.name,
       companyLogo: project.company.logo,
       mentor: {
-        name: project.mentor.name,
-        email: project.mentor.email
+        name: mentor.name,
+        email: mentor.email
       },
       relatedMajors: project.relatedMajors.map(major => major.name),
       requiredSkills: project.requiredSkills.map(skill => skill.name)

@@ -1,60 +1,31 @@
 import jwt from 'jsonwebtoken';
-import mongoose from 'mongoose';
+import { handleError } from '../utils/errorHandler.js';
 
-const optionalAuthenticate = (Model) => async (req, res, next) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
-
-  if (!token) {
-    req.user = null;
-    req.userModel = null;
-    return next();
-  }
-
+const optionalAuthenticate = () => async (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    let user;
-    // Sửa điều kiện kiểm tra cho CompanyAccount
-    if (decoded.model === 'CompanyAccount') {
-      const Company = mongoose.model('Company');
-      const company = await Company.findById(decoded.companyId);
-      if (company) {
-        user = company.accounts.id(decoded._id);
-        if (user) {
-          user.parentId = company._id;
-          user.role = decoded.role; // Gán role từ token
-        }
-      }
-    } else if (decoded.model === 'School') {
-      const School = mongoose.model('School');
-      const school = await School.findOne({ 'accounts._id': decoded._id });
-      if (school) {
-        user = school.accounts.id(decoded._id);
-        user.parentId = school._id;
-      }
-    } else {
-      user = await Model.findById(decoded._id);
-    }
-
-    if (user) {
-      req.token = token;
-      req.user = user;
-      req.userModel = decoded.model;
-      
-      if (decoded.model === 'CompanyAccount') {
-        req.companyId = decoded.companyId;
-      }
-    } else {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
       req.user = null;
-      req.userModel = null;
+      return next();
     }
-  } catch (error) {
-    console.error('Auth Error:', error);
-    req.user = null;
-    req.userModel = null;
-  }
 
-  next();
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Decoded token:', decoded);
+
+    // Đảm bảo gán đầy đủ thông tin từ decoded token vào req.user
+    req.user = {
+      _id: decoded._id,
+      model: decoded.model,        // Thêm model
+      role: decoded.role,         // Thêm role
+      companyId: decoded.companyId // Thêm companyId nếu cần
+    };
+
+    next();
+  } catch (error) {
+    req.user = null;
+    next();
+  }
 };
 
 export default optionalAuthenticate;

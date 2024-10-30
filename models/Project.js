@@ -385,20 +385,24 @@ projectSchema.pre('save', async function (next) {
   const project = this;
 
   // Auto close recruiting if applicationEnd is passed
-  if (project.isRecruiting && project.applicationEnd < new Date()) {
-    project.isRecruiting = false;
-
-    // Di chuyển applicants vào lịch sử và tạo thông báo
+  if (project.isModified('isRecruiting') && !project.isRecruiting) {
     const now = new Date();
-    const newHistory = project.applicants.map(applicant => ({
+    
+    // Lưu lại danh sách applicants trước khi xóa
+    const applicantsList = [...project.applicants];
+
+    // Di chuyển applicants vào lịch sử
+    const newHistory = applicantsList.map(applicant => ({
       applicantId: applicant.applicantId,
       appliedDate: applicant.appliedDate,
       recruitmentClosedAt: now
     }));
 
     // Tạo thông báo cho các ứng viên không được chọn
-    for (const applicant of project.applicants) {
-      if (!project.selectedApplicants.some(selected => selected.studentId.toString() === applicant.applicantId.toString())) {
+    for (const applicant of applicantsList) {
+      if (!project.selectedApplicants.some(selected => 
+        selected.studentId.toString() === applicant.applicantId.toString()
+      )) {
         await Notification.insert({
           recipient: applicant.applicantId,
           recipientModel: 'Student',
@@ -406,21 +410,14 @@ projectSchema.pre('save', async function (next) {
           content: notificationMessages.project.applicationRejectedAfterClose(project.title),
           relatedId: project._id
         });
+
+        // Cập nhật appliedProjects của Student
+        await mongoose.model('Student').findByIdAndUpdate(
+          applicant.applicantId,
+          { $pull: { appliedProjects: project._id } }
+        );
       }
     }
-
-    project.applicantHistory.push(...newHistory);
-    project.applicants = []; // Xóa tất cả applicants sau khi đã lưu vào lịch sử
-  }
-
-  // Kiểm tra khi isRecruiting thay đổi thành false
-  if (project.isModified('isRecruiting') && !project.isRecruiting) {
-    const now = new Date();
-    const newHistory = project.applicants.map(applicant => ({
-      applicantId: applicant.applicantId,
-      appliedDate: applicant.appliedDate,
-      recruitmentClosedAt: now
-    }));
 
     project.applicantHistory.push(...newHistory);
     project.applicants = []; // Xóa tất cả applicants sau khi đã lưu vào lịch sử
@@ -1255,3 +1252,4 @@ export default Project;
  *         - startDate
  *         - endDate
  */
+ 
