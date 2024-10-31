@@ -10,23 +10,34 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 
 const logErrorToFile = (error) => {
-    const date = new Date();
-    const logDirectory = path.join(projectRoot, 'logs');
-    const logFileName = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}.log`;
-    const logFilePath = path.join(logDirectory, logFileName);
+    try {
+        const date = new Date().toISOString().split('T')[0];
+        const logDir = path.join(__dirname, '..', 'logs');
+        const logFile = path.join(logDir, `${date}.log`);
 
-    if (!fs.existsSync(logDirectory)) {
-        fs.mkdirSync(logDirectory);
+        // Tạo thư mục logs nếu chưa tồn tại
+        if (!fs.existsSync(logDir)) {
+            fs.mkdirSync(logDir, { recursive: true });
+        }
+
+        // Thử ghi log
+        fs.appendFileSync(logFile, 
+            `${new Date().toISOString()} - ${error.stack || error.message}\n`
+        );
+    } catch (err) {
+        // Nếu không ghi được log thì in ra console
+        console.error('Error writing to log file:', err);
     }
-
-    const logMessage = `[${date.toISOString()}] Lỗi: ${error.stack || error.message || error}\n`;
-
-    fs.appendFileSync(logFilePath, logMessage, 'utf8');
 };
 
 export const handleError = (error) => {
+    try {
+        logErrorToFile(error);
+    } catch (err) {
+        console.error('Error handling error:', err);
+    }
+
     console.error('Lỗi:', error);
-    logErrorToFile(error);
 
     if (error.status === 400) {
         return { status: 400, message: error.message };

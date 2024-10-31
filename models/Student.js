@@ -183,7 +183,6 @@ const StudentSchema = new Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Project'
     }],
-    isApproved: { type: Boolean, default: false },
     approvedBy: { type: Schema.Types.ObjectId, ref: 'SchoolAccount' },
     approvedAt: { type: Date },
     lastNotifiedDevice: {

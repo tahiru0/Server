@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import LoginHistory from '../models/LoginHistory.js';
 import crypto from 'crypto';
 
-export const generateTokens = (user, model, ipAddress, additionalInfo = {}) => {
+export const generateTokens = (user, model, ipAddress = 'unknown', additionalInfo = {}) => {
     const accessTokenPayload = {
         _id: user._id,
         model,
@@ -32,8 +32,9 @@ export const generateTokens = (user, model, ipAddress, additionalInfo = {}) => {
     return { accessToken, refreshToken };
 };
 
-const hashIpAddress = (ipAddress) => {
-    return crypto.createHash('sha256').update(ipAddress).digest('hex');
+const hashIpAddress = (ip) => {
+    if (!ip) return 'unknown';
+    return crypto.createHash('md5').update(ip).digest('hex');
 };
 
 const isFirstLogin = async (userId, userModel) => {

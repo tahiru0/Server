@@ -43,3 +43,10 @@ connectDatabase()
     console.error(chalk.red('Không thể khởi động server:'), error);
     process.exit(1);
   });
+
+if (process.env.NODE_ENV === 'production') {
+    // Tắt tất cả console.log trong production
+    console.log = function() {};
+    console.error = function() {};
+    console.warn = function() {};
+}

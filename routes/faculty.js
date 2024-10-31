@@ -278,7 +278,7 @@ router.post('/students', authenticateSchoolFaculty, async (req, res) => {
             });
         }
 
-        let majorDoc = await Major.findOne({ _id: major, _id: { $in: faculty.majors } });
+        let majorDoc = await Major.findOne({ _id: major, majors: { $in: faculty.majors } });
         if (!majorDoc) {
             return res.status(400).json({ message: 'Ngành học không hợp lệ hoặc không thuộc khoa này' });
         }
